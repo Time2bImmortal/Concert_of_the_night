@@ -1,14 +1,9 @@
-import tkinter as tk
-from tkinter import filedialog
-from Features_extraction import *
-import audioread
-import librosa
-import librosa.display
-import matplotlib.pyplot as plt
+
 import os
 import numpy as np
-from scipy.io import wavfile
-
+import tensorflow as tf
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
 
 def choose_folder():
     root = tk.Tk()
@@ -18,6 +13,13 @@ def choose_folder():
     folder_path = filedialog.askdirectory()
     return folder_path
 
+def build_model(input_shape):
+
+    # create model
+    model = keras.Sequential()
+    # 1st conv layer
+    model.add(keras.layers.Conv2D(32, (3, 3), activation='relu', input_shape=input_shape))
+    # 2nd conv layer
 
 def prepare_datasets(test_size, validation_size):
     pass
