@@ -7,114 +7,114 @@ import json
 import tkinter as tk
 from tkinter import filedialog
 import math
-SAMPLE_RATE = 44100
+import gzip
+import collections
+import shutil
 
-#Choose an audio file
-root = tk.Tk()
-root.withdraw()
-dataset_path = filedialog.askdirectory()
 
-# def save_spectrograms(dataset_path, json_path, n_mfcc=13, n_fft=2048, hop_length=512, num_segments=30):
-#     dict_data = {
-#         "light_treatment": [],
-#         "mfcc": [],
-#         "spectrogram": [],
-#         "labels": []
-#     }
-#
-#     for i, (treatment_dirpath, treatment_dirnames, _) in enumerate(os.walk(dataset_path)):
-#         if treatment_dirpath is not dataset_path:
-#             light_treatment = os.path.basename(treatment_dirpath)
-#             dict_data["light_treatment"].append(light_treatment)
-#
-#             for subject_dirname in treatment_dirnames:
-#                 subject_dirpath = os.path.join(treatment_dirpath, subject_dirname)
-#
-#                 for _, _, filenames in os.walk(subject_dirpath):
-#                     for filename in filenames:
-#                         file_path = os.path.join(subject_dirpath, filename)
-#                         signal, sr = librosa.load(file_path)
-#                         duration = librosa.get_duration(path=file_path)
-#                         samples_per_track = sr * duration
-#                         num_samples_per_segment = samples_per_track / num_segments
-#                         expected_vectors_mfcc = math.ceil(num_samples_per_segment / hop_length)
-#
-#                         for s in range(num_segments):
-#                             start_sample = int(num_samples_per_segment * s)
-#                             end_sample = int(start_sample + num_samples_per_segment)
-#                             segment_signal = signal[start_sample:end_sample]
-#                             stft = librosa.core.stft(segment_signal, hop_length=hop_length, n_fft=n_fft)
-#                             spectrogram = np.abs(stft)
-#                             mfcc = librosa.feature.mfcc(y=segment_signal, sr=sr, n_fft=n_fft, n_mfcc=n_mfcc,
-#                                                         hop_length=hop_length)
-#                             mfcc = mfcc.T
-#                             if len(mfcc) == expected_vectors_mfcc:
-#                                 dict_data["mfcc"].append(mfcc.tolist())
-#                                 dict_data["labels"].append(i - 1)
-#                                 dict_data["spectrogram"].append(spectrogram.tolist())
-#                                 print(f"{file_path}, Segment {s}")
-#
-#     with open(json_path, 'w') as fp:
-#         json.dump(dict_data, fp, indent=5)
+def organize_files_by_treatment(src_directory, dst_directory, treatments, file_extension=".gz"):
+    """
+    Organize files by treatments.
+
+    Parameters:
+    - src_directory: Source directory where the .gz files are located.
+    - dst_directory: Destination directory where the files will be organized.
+    - treatments: List of treatments.
+    - file_extension: File extension to be copied. Default is ".gz".
+    """
+    # Make sure that source and destination directories are different
+    assert src_directory != dst_directory, "Source and destination directories cannot be the same."
+
+    # Iterate over each treatment
+    for treatment in treatments:
+        # Create a new directory for each treatment, adding '_extract' to the name
+        treatment_directory = os.path.join(dst_directory, treatment + "_extract")
+        os.makedirs(treatment_directory, exist_ok=True)
+
+        # Go through all subdirectories, files in source directory
+        for dirpath, dirnames, filenames in os.walk(src_directory):
+            # For each file, if it's a .gz file and if the file belongs to the current treatment
+            for filename in filenames:
+                if filename.endswith(file_extension) and treatment in dirpath:
+                    # Form the full file path in source and destination
+                    src_file_path = os.path.join(dirpath, filename)
+                    dst_file_path = os.path.join(treatment_directory, filename)
+
+                    # Copy the file to the new directory
+                    shutil.copy2(src_file_path, dst_file_path)
+
+
 def save_spectrograms(dataset_path, n_mfcc=13, n_fft=2048, hop_length=512, num_segments=30):
-    treatments = [dir_name for dir_name in os.listdir(dataset_path) if os.path.isdir(os.path.join(dataset_path, dir_name))]
-    for i, (treatment_dirpath, treatment_dirnames, _) in enumerate(os.walk(dataset_path)):
-        if treatment_dirpath is not dataset_path:
+    treatments = sorted([dir_name for dir_name in os.listdir(dataset_path) if os.path.isdir(os.path.join(dataset_path, dir_name))])
 
-            light_treatment = os.path.basename(treatment_dirpath)
-            label = treatments.index(light_treatment)
+    subfolders_by_treatment = collections.defaultdict(list)
+    for treatment in treatments:
+        treatment_path = os.path.join(dataset_path, treatment)
+        subfolders = sorted([name for name in os.listdir(treatment_path) if os.path.isdir(os.path.join(treatment_path, name))])
+        subfolders_by_treatment[treatment] = subfolders
 
-            for fdirpath, dirnames, filenames in os.walk(treatment_dirpath):
-                for filename in filenames:
-                    if not filename.endswith(".wav"):  # Check if the file is an audio file
-                        continue
+    max_subfolders = max(len(subfolders) for subfolders in subfolders_by_treatment.values())
 
-                    dict_data = {
-                        "light_treatment": [],
-                        "mfcc": [],
-                        "spectrogram": [],
-                        "labels": [],
-                        "subfolder_name": [],
-                        "segment_number": []
-                    }
+    for i in range(max_subfolders):
+        for treatment in treatments:
+            subfolders = subfolders_by_treatment[treatment]
+            if i < len(subfolders):
+                subfolder = subfolders[i]
+                subfolder_path = os.path.join(dataset_path, treatment, subfolder)
 
-                    json_file = filename.replace(".wav", ".json")
-                    json_path = os.path.join(fdirpath, json_file)
-                    if os.path.isfile(json_path):   # check if json file already exists
-                        print(f"'{json_file}' file already exists in {fdirpath}. Skipping this file.")
-                        continue
+                for filename in os.listdir(subfolder_path):
+                    if filename.endswith(".wav"):
+                        file_path = os.path.join(subfolder_path, filename)
 
-                    file_path = os.path.join(fdirpath, filename)
-                    signal, sr = librosa.load(file_path)
-                    duration = librosa.get_duration(y=signal, sr=sr)
-                    samples_per_track = sr*duration
-                    num_samples_per_segment = samples_per_track / num_segments
-                    expected_vectors_mfcc = math.ceil(num_samples_per_segment / hop_length)
+                        dict_data = {
+                            "light_treatment": [],
+                            "mfcc": [],
+                            # "spectrogram": [],
+                            "labels": [],
+                            "subfolder_name": [],
+                            "segment_number": []
+                        }
 
-                    for s in range(num_segments):
-                        start_sample = int(num_samples_per_segment * s)
-                        end_sample = int(start_sample + num_samples_per_segment)
-                        segment_signal = signal[start_sample:min(end_sample, len(signal))]
-
-                        if len(segment_signal) == 0:
-                            print(f"Empty segment signal at segment {s} of file {file_path}. Skipping this segment.")
+                        gz_json_file = filename.replace(".wav", ".gz")  # Changed file extension
+                        gz_json_path = os.path.join(subfolder_path, gz_json_file)
+                        if os.path.isfile(gz_json_path):
+                            print(f"'{gz_json_file}' file already exists in {subfolder_path}. Skipping this file.")
                             continue
 
-                        stft = librosa.core.stft(segment_signal, hop_length=hop_length, n_fft=n_fft)
-                        spectrogram = np.abs(stft)
-                        mfcc = librosa.feature.mfcc(y=segment_signal, sr=sr, n_fft=n_fft, n_mfcc=int(n_mfcc), hop_length=hop_length)
-                        mfcc = mfcc.T
+                        signal, sr = librosa.load(file_path)
+                        duration = librosa.get_duration(y=signal, sr=sr)
+                        samples_per_track = sr*duration
+                        num_samples_per_segment = samples_per_track / num_segments
+                        expected_vectors_mfcc = math.ceil(num_samples_per_segment / hop_length)
 
-                        if len(mfcc) == expected_vectors_mfcc:
-                            dict_data["mfcc"].append(mfcc.tolist())
-                            dict_data["labels"].append(label)
-                            dict_data["spectrogram"].append(spectrogram.tolist())
-                            dict_data["light_treatment"].append(light_treatment)
-                            dict_data["subfolder_name"].append(os.path.basename(fdirpath))  # save the subfolder name
-                            dict_data["segment_number"].append(s)
+                        for s in range(num_segments):
+                            start_sample = int(num_samples_per_segment * s)
+                            end_sample = int(start_sample + num_samples_per_segment)
+                            segment_signal = signal[start_sample:min(end_sample, len(signal))]
 
-                    with open(json_path, 'w') as fp:
-                        json.dump(dict_data, fp, indent=4)
+                            if len(segment_signal) == 0:
+                                print(f"Empty segment signal at segment {s} of file {file_path}. Skipping this segment.")
+                                continue
+
+                            # stft = librosa.core.stft(segment_signal, hop_length=hop_length, n_fft=n_fft)
+                            # spectrogram = np.abs(stft)
+                            mfcc = librosa.feature.mfcc(y=segment_signal, sr=sr, n_fft=n_fft, n_mfcc=n_mfcc, hop_length=hop_length)
+                            mfcc = mfcc.T
+
+                            print(f"The file {filename}, section: {s} is being processed...")
+
+                            if len(mfcc) == expected_vectors_mfcc:
+                                dict_data["mfcc"].append(mfcc.tolist())
+                                dict_data["labels"].append(treatments.index(treatment))
+                                # dict_data["spectrogram"].append(spectrogram.tolist())
+                                dict_data["light_treatment"].append(treatment)
+                                dict_data["subfolder_name"].append(subfolder)
+                                dict_data["segment_number"].append(s)
+
+                        # gz_json_path = json_path.replace(".json", ".gz")
+                        write_gz_json(dict_data, gz_json_path)
+
+                        print(f"The file {filename} has been processed.")
 
 
 def combine_dicts(dataset_path):
@@ -139,25 +139,56 @@ def combine_dicts(dataset_path):
 
     print(f"'master_data.json' saved in {dataset_path}.")
 
+
 def open_and_view_json():
     root = tk.Tk()
     root.withdraw()  # to hide the small tk window
 
     # open file dialog to choose a file
-    file_path = filedialog.askopenfilename(filetypes=[('JSON Files', '*.json')])
+    file_path = filedialog.askopenfilename(filetypes=[('GZ Files', '*.gz')])
+
+    fig, ax = plt.subplots()
+    i = 0  # define i here
 
     if file_path:  # if a file was chosen
-        with open(file_path, 'r') as fp:
+        with gzip.open(file_path, 'rt') as fp:  # 'rt' mode to open as text file
             data_dict = json.load(fp)
 
-        for key, value in data_dict.items():
-            print(f"{key}: {value}\n")
+        # MFCC data extraction
+        mfcc_data = np.array(data_dict["mfcc"])
+
+        # Initial plot
+        im = ax.imshow(mfcc_data[i].T, aspect='auto', cmap='hot_r', origin='lower')
+        fig.colorbar(im)
+
+        # Respond to a key press
+        def on_key(event):
+            nonlocal i  # reference the i defined in the enclosing scope
+            if event.key == 'right':
+                i = (i + 1) % len(mfcc_data)
+                print(f"Segment n_{i}/30")
+            elif event.key == 'left':
+                i = (i - 1) % len(mfcc_data)
+                print(f"Segment n_{i}/30")
+
+            # Update the image data
+            im.set_data(mfcc_data[i].T)
+            # Redraw the figure
+            fig.canvas.draw()
+
+        # Connect the event to the function
+        fig.canvas.mpl_connect('key_press_event', on_key)
+        plt.show()
+
     else:
         print("No file chosen.")
+
+
 def get_samplerate(audio_file_path):
     data, samplerate = sf.read(audio_file_path)
     print(f'The file has a samplerate of: {samplerate}')
     return samplerate
+
 
 def display_waveform(signal, sr):
     plt.figure()
@@ -166,6 +197,53 @@ def display_waveform(signal, sr):
     plt.ylabel('Amplitude')
     plt.title('Waveform')
     plt.show()
-#
 
-save_spectrograms(dataset_path)
+
+def write_gz_json(json_obj, filename):
+    json_str = json.dumps(json_obj) + "\n"
+    json_bytes = json_str.encode('utf-8')
+
+    with gzip.GzipFile(filename, 'w') as fout:
+        fout.write(json_bytes)
+
+
+def save_and_compare_audio(filename):
+    # Load the audio file
+    signal, sr = librosa.load(filename)
+
+    # Save the audio data to a json file
+    json_filename = filename.replace('.wav', '.json')
+    with open(json_filename, 'w') as json_file:
+        json.dump(signal.tolist(), json_file)
+
+    # Save the audio data to a gzipped json file
+    gz_filename = filename.replace('.wav', '.gz')
+    write_gz_json(signal.tolist(), gz_filename)
+
+    # Load the json data
+    with open(json_filename, 'r') as json_file:
+        json_data = np.array(json.load(json_file))
+
+    # Load the gzipped json data
+    with gzip.GzipFile(gz_filename, 'r') as gz_file:
+        gz_data = np.array(json.loads(gz_file.read().decode('utf-8')))
+
+    # Compare the two data arrays
+    if np.array_equal(json_data, gz_data):
+        print("The two files contain identical data.")
+    else:
+        print("The two files do not contain identical data.")
+
+# Choose an audio file
+# print("First input source")
+root = tk.Tk()
+root.withdraw()
+# dataset_path = filedialog.askdirectory()
+# print("Then folder")
+# goal = filedialog.askdirectory()
+filename = filedialog.askopenfilename()
+# save_spectrograms(dataset_path)
+# organize_files_by_treatment(dataset_path,goal, ["2lux", "5lux", "LL", "LD"])
+# open_and_view_json()
+
+save_and_compare_audio(filename)
