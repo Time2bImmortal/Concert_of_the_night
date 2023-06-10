@@ -19,6 +19,25 @@ FEATURE_ABBREVIATIONS = {
     "zero_crossing_rate": "zcr"
 }
 
+def open_and_show_gz_file():
+    tk.Tk().withdraw()  # Hide the Tkinter root window
+
+    file = filedialog.askopenfile(filetypes=[('GZ files', '*.gz')])
+    if file is None:
+        print("No file selected.")
+        return
+
+    try:
+        with gzip.open(file.name, 'rt') as gz_file:
+            content = gz_file.read()
+            print(content)
+    except FileNotFoundError:
+        print("File not found.")
+    except gzip.BadGzipFile:
+        print("Invalid .gz file.")
+    except Exception as e:
+        print("An error occurred:", str(e))
+
 
 def get_samplerate(audio_file_path):
     data, samplerate = sf.read(audio_file_path)
@@ -35,40 +54,32 @@ def display_waveform(signal, sr):
     plt.show()
 
 
-def write_gz_json(json_obj, filename):
-    json_str = json.dumps(json_obj) + "\n"
-    json_bytes = json_str.encode('utf-8')
-
-    with gzip.GzipFile(filename, 'w') as fout:
-        fout.write(json_bytes)
-
-
-def save_and_compare_audio(filename):
-    # Load the audio file
-    signal, sr = librosa.load(filename)
-
-    # Save the audio data to a json file
-    json_filename = filename.replace('.wav', '.json')
-    with open(json_filename, 'w') as json_file:
-        json.dump(signal.tolist(), json_file)
-
-    # Save the audio data to a gzipped json file
-    gz_filename = filename.replace('.wav', '.gz')
-    write_gz_json(signal.tolist(), gz_filename)
-
-    # Load the json data
-    with open(json_filename, 'r') as json_file:
-        json_data = np.array(json.load(json_file))
-
-    # Load the gzipped json data
-    with gzip.GzipFile(gz_filename, 'r') as gz_file:
-        gz_data = np.array(json.loads(gz_file.read().decode('utf-8')))
-
-    # Compare the two data arrays
-    if np.array_equal(json_data, gz_data):
-        print("The two files contain identical data.")
-    else:
-        print("The two files do not contain identical data.")
+# def save_and_compare_audio(filename):
+#     # Load the audio file
+#     signal, sr = librosa.load(filename)
+#
+#     # Save the audio data to a json file
+#     json_filename = filename.replace('.wav', '.json')
+#     with open(json_filename, 'w') as json_file:
+#         json.dump(signal.tolist(), json_file)
+#
+#     # Save the audio data to a gzipped json file
+#     gz_filename = filename.replace('.wav', '.gz')
+#     write_gz_json(signal.tolist(), gz_filename)
+#
+#     # Load the json data
+#     with open(json_filename, 'r') as json_file:
+#         json_data = np.array(json.load(json_file))
+#
+#     # Load the gzipped json data
+#     with gzip.GzipFile(gz_filename, 'r') as gz_file:
+#         gz_data = np.array(json.loads(gz_file.read().decode('utf-8')))
+#
+#     # Compare the two data arrays
+#     if np.array_equal(json_data, gz_data):
+#         print("The two files contain identical data.")
+#     else:
+#         print("The two files do not contain identical data.")
 
 
 class AudioExplorer:
@@ -122,11 +133,11 @@ def process_audio_interactive(full=False):
 
 class AudioProcessor:
     def __init__(self, feature: str,
-                 n_mfcc=13, n_fft=2048, hop_length=512, num_segments=30):
+                 n_mfcc=13, frame_size=2048, hop_length=1024, num_segments=30):
         self.feature = feature  # Feature to extract from audio files
         self.file_extension = ".gz"
         self.n_mfcc = n_mfcc
-        self.n_fft = n_fft
+        self.frame_size = frame_size
         self.hop_length = hop_length
         self.num_segments = num_segments
         self.treatments = []
@@ -138,9 +149,6 @@ class AudioProcessor:
         file_path = filedialog.askopenfilename(title="Select File")
         root.destroy()
         return file_path
-    def single_file(self):
-        file = self.choose_file()
-        self.process_file(file)
     def create_feature_directory(self, directory):
         feature_directory = os.path.join(os.path.dirname(directory), self.feature)
         os.makedirs(feature_directory, exist_ok=True)
@@ -164,8 +172,22 @@ class AudioProcessor:
         src_directory = self.choose_src_directory()
         self.features_dir = self.create_feature_directory(src_directory)
         self.create_treatment_directories(src_directory)
-        self.process_file(self.choose_file())
+        self.process_directory(src_directory)
+        # self.process_file(self.choose_file())
 
+    def process_directory(self, src_directory):
+
+        # Create directories for each feature
+        self.features_dir = self.create_feature_directory(src_directory)
+        self.create_treatment_directories(src_directory)
+
+        # Iterate through files in source directory
+        for subdir, dirs, files in os.walk(src_directory):
+            for file in files:
+                # Check if file is an audio file
+                if file.endswith('.wav'):
+                    # Process each audio file
+                    self.process_file(os.path.join(subdir, file))
 
     def process_file(self, file_path):
         filename = os.path.basename(file_path)
@@ -207,11 +229,12 @@ class AudioProcessor:
                 continue
 
             feature_vectors = self.extract_feature(segment_signal, sr)
-            feature_vectors = feature_vectors.T
 
             print(f"The file {filename}, section: {s} is being processed...")
 
-            if len(feature_vectors) == expected_vectors_mfcc:
+            if len(feature_vectors) > 0:  # Check if feature_vectors is not empty
+                # Directly append feature vectors. If 2D, they should be in correct format already.
+                # If 1D, numpy will automatically treat list as one feature vector.
                 dict_data[self.feature].append(feature_vectors.tolist())
                 dict_data["labels"].append(self.treatments.index(treatment))
                 dict_data["segment_number"].append(s)
@@ -221,14 +244,38 @@ class AudioProcessor:
         print(f"The file {filename} has been processed.")
 
     def extract_feature(self, signal, sr):
-        if self.feature == "mfcc":
+        if self.feature == "mfcc": # Time-frequency feature
             return librosa.feature.mfcc(y=signal, sr=sr)
-        elif self.feature == "amplitude_envelope":
-            return librosa.amplitude_to_db(librosa.feature.rmse(signal), ref=np.max)
+        # Below are time features
+        elif self.feature == "ae":
+            amplitude_envelope = []
+            for i in range(0, len(signal), self.frame_size):
+                current_ae = max(signal[i:i+self.frame_size])
+                amplitude_envelope.append(current_ae)
+            return np.array(amplitude_envelope)
         elif self.feature == "rms":
             return librosa.feature.rms(signal)
-        elif self.feature == "zero_crossing_rate":
+        elif self.feature == "zcr":
             return librosa.feature.zero_crossing_rate(signal)
+        # Below are frequency feature
+        elif self.feature == "ber":
+            spectogram = librosa.stft(signal, n_fft=self.frame_size, hop_length=self.hop_length)
+            frequency_range = sr/2
+            frequency_delta_bin = frequency_range/spectogram.shape[0]
+            split_frequency = int(np.floor(2000/frequency_delta_bin))
+            power_spec = np.abs(spectogram) ** 2
+            power_spec = power_spec.T
+            band_energy_ration = []
+            for frequencies_in_frame in power_spec:
+                sum_power_spec_low = np.sum(frequencies_in_frame[:split_frequency])
+                sum_power_spec_high = np.sum(frequencies_in_frame[split_frequency:])
+                ber_current_frame = sum_power_spec_low/sum_power_spec_high
+                band_energy_ration.append(ber_current_frame)
+            return np.array(band_energy_ration)
+        elif self.feature == 'spec_centroid':
+            return librosa.feature.spectral_centroid(y=signal, sr=sr, n_fft=self.frame_size, hop_length=self.hop_length)[0]
+        elif self.feature == 'spec_bandwith':
+            return librosa.feature.spectral_bandwidth(y=signal, sr=sr, n_fft=self.frame_size, hop_length=self.hop_length)[0]
         else:
             raise ValueError(f"Unsupported feature: {self.feature}")
 
@@ -240,7 +287,7 @@ class AudioProcessor:
             fout.write(json_bytes)
 
 # Example usage
-feature = 'mfcc'  # Specify the feature to extract
-processor = AudioProcessor(feature)
-processor.run()
-
+# feature = 'ae'  # Specify the feature to extract
+# processor = AudioProcessor(feature)
+# processor.run()
+# open_and_show_gz_file()
