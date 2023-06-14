@@ -213,12 +213,12 @@ class AudioProcessor:
             print(f"'{gz_json_file}' file already exists in {treatment_dir}. Skipping this file.")
             return
 
-        signal, sr = librosa.load(file_path)
+        signal, sr = librosa.load(file_path, sr=44100)
         duration = librosa.get_duration(y=signal, sr=sr)
         samples_per_track = sr * duration
         num_samples_per_segment = samples_per_track / self.num_segments
         expected_vectors_mfcc = math.ceil(num_samples_per_segment / self.hop_length)
-
+        expected_shape = (math.ceil(num_samples_per_segment / self.hop_length), )
         for s in range(self.num_segments):
             start_sample = int(num_samples_per_segment * s)
             end_sample = int(start_sample + num_samples_per_segment)
@@ -229,12 +229,14 @@ class AudioProcessor:
                 continue
 
             feature_vectors = self.extract_feature(segment_signal, sr)
-
             print(f"The file {filename}, section: {s} is being processed...")
 
             if len(feature_vectors) > 0:  # Check if feature_vectors is not empty
-                # Directly append feature vectors. If 2D, they should be in correct format already.
-                # If 1D, numpy will automatically treat list as one feature vector.
+                if feature_vectors.shape != expected_shape:
+                    with open('problem_files.txt', 'a') as f:
+                        f.write(
+                            f'File {filename} section {s} produced feature vector with shape {feature_vectors.shape}.\n')
+                    continue
                 dict_data[self.feature].append(feature_vectors.tolist())
                 dict_data["labels"].append(self.treatments.index(treatment))
                 dict_data["segment_number"].append(s)
@@ -245,14 +247,30 @@ class AudioProcessor:
 
     def extract_feature(self, signal, sr):
         if self.feature == "mfcc": # Time-frequency feature
-            return librosa.feature.mfcc(y=signal, sr=sr)
+            return librosa.feature.mfcc(y=signal, n_fft=self.frame_size, n_mfcc=self.n_mfcc, hop_length=self.hop_length,
+                                        sr=sr)
+        # mfcc_delta = librosa.feature.delta(mfcc)
+        #
+        # # Compute second derivative (delta-delta) of MFCC
+        # mfcc_delta2 = librosa.feature.delta(mfcc, order=2)
+        elif self.feature == "spectrogram":
+            # Compute the spectrogram magnitude and phase
+            S_complex = librosa.stft(signal, hop_length=self.hop_length, n_fft=self.frame_size)
+            spectogram = np.abs(S_complex)
+            log_spectogram = librosa.amplitude_to_db(spectogram)
+            return log_spectogram
+        elif self.feature == "mel_spectrogram":
+            # Compute a mel-scaled spectrogram.
+            S = librosa.feature.melspectrogram(y=signal, sr=sr)
+            return S
         # Below are time features
         elif self.feature == "ae":
             amplitude_envelope = []
-            for i in range(0, len(signal), self.frame_size):
+            for i in range(0, len(signal), self.hop_length):
                 current_ae = max(signal[i:i+self.frame_size])
                 amplitude_envelope.append(current_ae)
-            return np.array(amplitude_envelope)
+            amplitude_envelope = np.array(amplitude_envelope)
+            return amplitude_envelope
         elif self.feature == "rms":
             return librosa.feature.rms(signal)
         elif self.feature == "zcr":
@@ -272,9 +290,9 @@ class AudioProcessor:
                 ber_current_frame = sum_power_spec_low/sum_power_spec_high
                 band_energy_ration.append(ber_current_frame)
             return np.array(band_energy_ration)
-        elif self.feature == 'spec_centroid':
+        elif self.feature == 'sc':
             return librosa.feature.spectral_centroid(y=signal, sr=sr, n_fft=self.frame_size, hop_length=self.hop_length)[0]
-        elif self.feature == 'spec_bandwith':
+        elif self.feature == 'bw':
             return librosa.feature.spectral_bandwidth(y=signal, sr=sr, n_fft=self.frame_size, hop_length=self.hop_length)[0]
         else:
             raise ValueError(f"Unsupported feature: {self.feature}")
@@ -290,4 +308,4 @@ class AudioProcessor:
 # feature = 'ae'  # Specify the feature to extract
 # processor = AudioProcessor(feature)
 # processor.run()
-# open_and_show_gz_file()
+open_and_show_gz_file()
