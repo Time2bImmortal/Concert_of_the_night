@@ -15,8 +15,11 @@ from typing import List
 FEATURE_ABBREVIATIONS = {
     "mfcc": "mfcc",
     "amplitude_envelope": "ae",
-    "rms": "rms",
-    "zero_crossing_rate": "zcr"
+    "root_mean_square": "rms",
+    "zero_crossing_rate": "zcr",
+    "spectral_bandwidth": "bw",
+    "spectral_centroid": "sc",
+    "band_energy_ration": "ber"
 }
 
 def open_and_show_gz_file():
@@ -149,6 +152,7 @@ class AudioProcessor:
         file_path = filedialog.askopenfilename(title="Select File")
         root.destroy()
         return file_path
+
     def create_feature_directory(self, directory):
         feature_directory = os.path.join(os.path.dirname(directory), self.feature)
         os.makedirs(feature_directory, exist_ok=True)
@@ -177,19 +181,99 @@ class AudioProcessor:
 
     def process_directory(self, src_directory):
 
-        # Create directories for each feature
-        self.features_dir = self.create_feature_directory(src_directory)
-        self.create_treatment_directories(src_directory)
-
         # Iterate through files in source directory
         for subdir, dirs, files in os.walk(src_directory):
+            counter = 1
             for file in files:
                 # Check if file is an audio file
                 if file.endswith('.wav'):
                     # Process each audio file
-                    self.process_file(os.path.join(subdir, file))
+                    self.process_file(os.path.join(subdir, file), counter)
+                    counter += 1
 
-    def process_file(self, file_path):
+    def process_file(self, file_path, counter):
+        filename = os.path.basename(file_path)
+        subfolder, treatment, dict_data = self.get_directory_info(file_path)
+        gz_file_return = self.create_gz_file(filename, counter, subfolder, treatment)
+        if gz_file_return is None:
+            print(f"Skipping file {file_path} as it already exists.")
+            return
+        gz_json_file, gz_json_path = gz_file_return
+        signal, sr = librosa.load(file_path, sr=44100)
+        print('signal, sr', signal, sr)
+        num_samples_per_segment, expected_shape = self.get_expected_shape(signal, sr)
+
+        for s in range(self.num_segments):
+            segment_signal = self.get_segment_signal(filename, s, signal, num_samples_per_segment)
+
+            if segment_signal is not None:
+                feature_vectors = self.extract_feature(segment_signal, sr)
+                print(f"The file {filename}, section: {s} is being processed...")
+
+                if self.check_feature_vectors(feature_vectors, expected_shape, filename, s):
+                    self.update_dict_data(dict_data, feature_vectors, treatment, s)
+
+        self.write_gz_json(dict_data, gz_json_path)
+        self.write_metadata(sr, signal, feature_vectors)
+        print(f"The file {filename} has been processed.")
+
+    def write_metadata(self, sr, signal, feature_vectors):
+        metadata_file_path = os.path.join(self.features_dir, f'{self.feature}_metadata.txt')
+        if not os.path.exists(metadata_file_path):
+            details = self.get_details(sr, signal, feature_vectors)
+            with open(metadata_file_path, 'w') as f:
+                f.write(f"Extraction details for processed feature: {self.feature}:\n")
+                for key, value in details.items():
+                    f.write(f"{key}: {value}\n")
+
+    def get_details(self, sr, signal, feature_vectors):
+        return {
+            "Sampling rate": sr,
+            "Number of segments": self.num_segments,
+            "Duration": librosa.get_duration(y=signal, sr=sr),
+            "Hop length": self.hop_length,
+            "Frame size": self.frame_size,
+            "Shape of the feature extracted": feature_vectors.shape,
+        }
+
+    def update_dict_data(self, dict_data, feature_vectors, treatment, s):
+        dict_data[self.feature].append(feature_vectors.tolist())
+        dict_data["labels"].append(self.treatments.index(treatment))
+        dict_data["segment_number"].append(s)
+
+    def check_feature_vectors(self, feature_vectors, expected_shape, filename, s):
+        print('features_vectors', feature_vectors.shape)
+        print('expected shape', expected_shape)
+        if len(feature_vectors) > 0:  # Check if feature_vectors is not empty
+            if feature_vectors.shape != expected_shape:
+                with open('problem_files.txt', 'a') as f:
+                    f.write(
+                        f'File {filename} section {s} produced feature vector with shape {feature_vectors.shape}.\n')
+                return False
+            return True
+        return False
+
+    def get_segment_signal(self, filename, s, signal, num_samples_per_segment):
+        start_sample = int(num_samples_per_segment * s)
+        end_sample = int(start_sample + num_samples_per_segment)
+        segment_signal = signal[start_sample:end_sample]
+
+        if len(segment_signal) == 0:
+            print(f"Empty segment signal at segment {s} of file {filename}. Skipping this segment.")
+            return None
+        return segment_signal
+
+    def create_gz_file(self, filename, counter, subfolder, treatment):
+        gz_json_file = filename.replace(filename, f"{str(counter).zfill(5)}_{subfolder}_{self.feature}.gz")
+        treatment_dir = os.path.join(self.features_dir, treatment)  # Get the corresponding treatment directory
+        os.makedirs(treatment_dir, exist_ok=True)  # Create treatment directory if it doesn't exist
+        gz_json_path = os.path.join(treatment_dir, gz_json_file)
+        if os.path.isfile(gz_json_path):
+            print(f"'{gz_json_file}' file already exists in {treatment_dir}. Skipping this file.")
+            return None
+        return gz_json_file, gz_json_path
+
+    def get_directory_info(self, file_path):
         filename = os.path.basename(file_path)
         subfolder_path = os.path.dirname(file_path)
         subfolder = os.path.basename(subfolder_path)
@@ -197,53 +281,26 @@ class AudioProcessor:
         treatment_path = os.path.dirname(subfolder_path)
         treatment = os.path.basename(treatment_path)
         dict_data = {
-            "path" : file_path,
+            "path": file_path,
             "subfolder_name": subfolder,
             "filename": filename,
             self.feature: [],
             "labels": [],
             "segment_number": []
         }
+        return subfolder, treatment, dict_data
 
-        gz_json_file = filename.replace(".wav", f"_{self.feature}.gz")
-        treatment_dir = os.path.join(self.features_dir, treatment)  # Get the corresponding treatment directory
-        os.makedirs(treatment_dir, exist_ok=True)  # Create treatment directory if it doesn't exist
-        gz_json_path = os.path.join(treatment_dir, gz_json_file)
-        if os.path.isfile(gz_json_path):
-            print(f"'{gz_json_file}' file already exists in {treatment_dir}. Skipping this file.")
-            return
-
-        signal, sr = librosa.load(file_path, sr=44100)
+    def get_expected_shape(self, signal, sr):
         duration = librosa.get_duration(y=signal, sr=sr)
         samples_per_track = sr * duration
         num_samples_per_segment = samples_per_track / self.num_segments
-        expected_vectors_mfcc = math.ceil(num_samples_per_segment / self.hop_length)
-        expected_shape = (math.ceil(num_samples_per_segment / self.hop_length), )
-        for s in range(self.num_segments):
-            start_sample = int(num_samples_per_segment * s)
-            end_sample = int(start_sample + num_samples_per_segment)
-            segment_signal = signal[start_sample:end_sample]
-
-            if len(segment_signal) == 0:
-                print(f"Empty segment signal at segment {s} of file {file_path}. Skipping this segment.")
-                continue
-
-            feature_vectors = self.extract_feature(segment_signal, sr)
-            print(f"The file {filename}, section: {s} is being processed...")
-
-            if len(feature_vectors) > 0:  # Check if feature_vectors is not empty
-                if feature_vectors.shape != expected_shape:
-                    with open('problem_files.txt', 'a') as f:
-                        f.write(
-                            f'File {filename} section {s} produced feature vector with shape {feature_vectors.shape}.\n')
-                    continue
-                dict_data[self.feature].append(feature_vectors.tolist())
-                dict_data["labels"].append(self.treatments.index(treatment))
-                dict_data["segment_number"].append(s)
-
-        self.write_gz_json(dict_data, gz_json_path)
-
-        print(f"The file {filename} has been processed.")
+        if self.feature in ["mfcc", "spectrogram", "mel_spectrogram"]:
+            expected_shape = (self.n_mfcc, math.ceil(num_samples_per_segment / self.hop_length))
+        elif self.feature in ["ae", "rms", "zcr", "ber", 'sc', 'bw']:
+            expected_shape = (1, math.ceil(num_samples_per_segment / self.hop_length))
+        else:
+            raise ValueError(f"Unsupported feature: {self.feature}")
+        return num_samples_per_segment, expected_shape
 
     def extract_feature(self, signal, sr):
         if self.feature == "mfcc": # Time-frequency feature
@@ -269,27 +326,29 @@ class AudioProcessor:
             for i in range(0, len(signal), self.hop_length):
                 current_ae = max(signal[i:i+self.frame_size])
                 amplitude_envelope.append(current_ae)
-            amplitude_envelope = np.array(amplitude_envelope)
+            amplitude_envelope = np.array(amplitude_envelope).reshape(1, -1)
             return amplitude_envelope
         elif self.feature == "rms":
-            return librosa.feature.rms(signal)
+            return librosa.feature.rms(y=signal, frame_length=self.frame_size, hop_length=self.hop_length)
+
         elif self.feature == "zcr":
-            return librosa.feature.zero_crossing_rate(signal)
+            return librosa.feature.zero_crossing_rate(signal, frame_length=self.frame_size, hop_length=self.hop_length)
+
         # Below are frequency feature
         elif self.feature == "ber":
-            spectogram = librosa.stft(signal, n_fft=self.frame_size, hop_length=self.hop_length)
+            spectogram = librosa.stft(signal, sr=sr, n_fft=self.frame_size, hop_length=self.hop_length)
             frequency_range = sr/2
             frequency_delta_bin = frequency_range/spectogram.shape[0]
             split_frequency = int(np.floor(2000/frequency_delta_bin))
             power_spec = np.abs(spectogram) ** 2
             power_spec = power_spec.T
-            band_energy_ration = []
+            band_energy_ratio = []
             for frequencies_in_frame in power_spec:
                 sum_power_spec_low = np.sum(frequencies_in_frame[:split_frequency])
                 sum_power_spec_high = np.sum(frequencies_in_frame[split_frequency:])
                 ber_current_frame = sum_power_spec_low/sum_power_spec_high
-                band_energy_ration.append(ber_current_frame)
-            return np.array(band_energy_ration)
+                band_energy_ratio.append(ber_current_frame)
+            return np.array(band_energy_ratio)
         elif self.feature == 'sc':
             return librosa.feature.spectral_centroid(y=signal, sr=sr, n_fft=self.frame_size, hop_length=self.hop_length)[0]
         elif self.feature == 'bw':
@@ -305,7 +364,7 @@ class AudioProcessor:
             fout.write(json_bytes)
 
 # Example usage
-# feature = 'ae'  # Specify the feature to extract
-# processor = AudioProcessor(feature)
-# processor.run()
-open_and_show_gz_file()
+feature = 'ae'  # Specify the feature to extract
+processor = AudioProcessor(feature)
+processor.run()
+# open_and_show_gz_file()

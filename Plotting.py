@@ -99,4 +99,4 @@ def plot_mean_amplitude_envelope(min_size, max_size):
 
 
 # plot_mean_zero_crossing_rate(100000, 200000)
-plot_mean_amplitude_envelope(80000, 200000)
+plot_mean_amplitude_envelope(200000, 350000)
