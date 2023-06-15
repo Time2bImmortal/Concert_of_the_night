@@ -336,7 +336,7 @@ class AudioProcessor:
 
         # Below are frequency feature
         elif self.feature == "ber":
-            spectogram = librosa.stft(signal, sr=sr, n_fft=self.frame_size, hop_length=self.hop_length)
+            spectogram = librosa.stft(signal, n_fft=self.frame_size, hop_length=self.hop_length)
             frequency_range = sr/2
             frequency_delta_bin = frequency_range/spectogram.shape[0]
             split_frequency = int(np.floor(2000/frequency_delta_bin))
@@ -348,11 +348,11 @@ class AudioProcessor:
                 sum_power_spec_high = np.sum(frequencies_in_frame[split_frequency:])
                 ber_current_frame = sum_power_spec_low/sum_power_spec_high
                 band_energy_ratio.append(ber_current_frame)
-            return np.array(band_energy_ratio)
+            return np.array(band_energy_ratio).reshape(1, -1)
         elif self.feature == 'sc':
-            return librosa.feature.spectral_centroid(y=signal, sr=sr, n_fft=self.frame_size, hop_length=self.hop_length)[0]
+            return librosa.feature.spectral_centroid(y=signal, sr=sr, n_fft=self.frame_size, hop_length=self.hop_length)
         elif self.feature == 'bw':
-            return librosa.feature.spectral_bandwidth(y=signal, sr=sr, n_fft=self.frame_size, hop_length=self.hop_length)[0]
+            return librosa.feature.spectral_bandwidth(y=signal, sr=sr, n_fft=self.frame_size, hop_length=self.hop_length)
         else:
             raise ValueError(f"Unsupported feature: {self.feature}")
 
@@ -364,7 +364,7 @@ class AudioProcessor:
             fout.write(json_bytes)
 
 # Example usage
-feature = 'ae'  # Specify the feature to extract
+feature = 'ber'  # Specify the feature to extract
 processor = AudioProcessor(feature)
 processor.run()
 # open_and_show_gz_file()
