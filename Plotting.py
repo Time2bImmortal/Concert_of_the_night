@@ -6,28 +6,32 @@ import matplotlib.pyplot as plt
 import tkinter as tk
 from tkinter import filedialog
 import pandas as pd
-def plot_mean_amplitude_envelope(min_size, max_size):
+FEATURES_TO_PLOT = {
+    'ae': (100000, 200000),
+    "rms":(100000, 200000),
+    "zcr": (100000, 200000),
+    "bw": (100000, 200000),
+    "sc":(100000, 200000),
+    "ber":(100000, 200000)
+}
+
+def plot_mean_feature_treatment(directory: str, data_dict: dict):
     """
-    Plots the mean amplitude envelope for each treatment in a given directory.
+    Plots the mean feature for each treatment in a given directory.
     Only processes files within the provided memory size range.
 
     Args:
-        min_size (int): Minimum file size in bytes.
-        max_size (int): Maximum file size in bytes.
+        directory (str): The directory where the function will look for the files.
+        data_dict (dict): The dictionary containing the features to be plotted
+                          along with their min and max sizes.
     """
 
-    # Initialize an empty dictionary to store the concatenated means
-    treatment_concatenated_means = {}
+    # Walk through the directory tree
+    for feature_name, (min_size, max_size) in data_dict.items():
+        # Initialize an empty dictionary to store the concatenated means
+        treatment_concatenated_means = {}
 
-    # Open a dialog box for the user to choose a directory
-    root = tk.Tk()
-    root.withdraw()
-    feature_directory = filedialog.askdirectory(title="Please select the feature directory")
-
-    # Open a text file to log problematic files
-    with open('problematic_files.txt', 'w') as log_file:
-
-        # Walk through the directory tree
+        feature_directory = os.path.join(directory, feature_name)
         for dirpath, dirs, files in os.walk(feature_directory):
             print(f"\nProcessing directory: {dirpath}")
 
@@ -51,12 +55,7 @@ def plot_mean_amplitude_envelope(min_size, max_size):
                     treatment_concatenated_means[treatment] = []
 
                 # Concatenate the segments in the current file
-                file_segments = np.concatenate(dict_data[os.path.basename(feature_directory)][:29])
-
-                # Check if the size of the concatenated segments is 29*2854
-                if file_segments.shape[0] != 29*2584:
-                    log_file.write(f"Problematic file: {file_path} | Size: {file_segments.shape[0]}\n")
-                    continue
+                file_segments = np.concatenate(dict_data[feature_name][:29])
 
                 # Append this array to the current treatment's list
                 treatment_concatenated_means[treatment].append(file_segments)
@@ -71,26 +70,21 @@ def plot_mean_amplitude_envelope(min_size, max_size):
             # Compute the mean across the concatenated segments for the current treatment
             mean_features = np.mean(concatenated_segments_list, axis=0)
             print(f"Shape of mean_features for {treatment}: {mean_features.shape}")
-            # sample_index = np.linspace(0, len(mean_features)-1, len(mean_features))
             mean_features_series = pd.Series(mean_features)
 
             # Apply the rolling mean with a window size of 10
             smooth_mean = mean_features_series.rolling(window=100).mean()
 
-            # The first few values of smooth_mean will be NaN (due to the window size), so you might want to handle them before proceeding.
-            # smooth_mean = smooth_mean.dropna()
-
             # The corresponding sample_index should also be adjusted to match the length of smooth_mean
             sample_index = np.linspace(0, len(smooth_mean) - 1, len(smooth_mean))
-
 
             # Plot the mean amplitude envelope
             plt.plot(sample_index, smooth_mean, label=treatment)
 
         # Configure the plot
         plt.xlabel('Sample_index')
-        plt.ylabel('Mean Amplitude Envelope')
-        plt.title('Mean Amplitude Envelope per Treatment')
+        plt.ylabel(f'Mean {feature_name}')
+        plt.title(f'Mean {feature_name} per Treatment')
         plt.legend()
 
         # Display the plot
@@ -98,5 +92,9 @@ def plot_mean_amplitude_envelope(min_size, max_size):
 
 
 
-# plot_mean_zero_crossing_rate(100000, 200000)
-plot_mean_amplitude_envelope(200000, 350000)
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    root.withdraw()
+    folder_path = filedialog.askdirectory()
+    plot_mean_feature_treatment(folder_path, FEATURES_TO_PLOT)
