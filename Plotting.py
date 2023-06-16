@@ -8,11 +8,11 @@ from tkinter import filedialog
 import pandas as pd
 FEATURES_TO_PLOT = {
     'ae': (100000, 200000),
-    "rms":(100000, 200000),
+    "rms": (100000, 200000),
     "zcr": (100000, 200000),
     "bw": (100000, 200000),
-    "sc":(100000, 200000),
-    "ber":(100000, 200000)
+    "sc": (100000, 200000),
+    "ber": (100000, 200000)
 }
 
 def plot_mean_feature_treatment(directory: str, data_dict: dict):
@@ -86,6 +86,9 @@ def plot_mean_feature_treatment(directory: str, data_dict: dict):
         plt.ylabel(f'Mean {feature_name}')
         plt.title(f'Mean {feature_name} per Treatment')
         plt.legend()
+        plot_dir = os.path.join(folder_path, 'plots')
+        os.makedirs(plot_dir, exist_ok=True)
+        plt.savefig(os.path.join(plot_dir, f"{feature_name}_plot.png"))
 
         # Display the plot
         plt.show()
