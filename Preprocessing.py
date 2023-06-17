@@ -12,6 +12,7 @@ import gzip
 import collections
 import shutil
 from typing import List
+from multiprocessing import Pool
 FEATURE_ABBREVIATIONS = {
     "mfcc": "mfcc",
     "amplitude_envelope": "ae",
@@ -179,18 +180,34 @@ class AudioProcessor:
         self.process_directory(src_directory)
         # self.process_file(self.choose_file())
 
+    # def process_directory(self, src_directory):
+    #
+    #     # Iterate through files in source directory
+    #     for subdir, dirs, files in os.walk(src_directory):
+    #         counter = 1
+    #         for file in files:
+    #             # Check if file is an audio file
+    #             if file.endswith('.wav'):
+    #                 # Process each audio file
+    #                 self.process_file(os.path.join(subdir, file), counter)
+    #                 counter += 1
     def process_directory(self, src_directory):
-
-        # Iterate through files in source directory
+        # Get list of audio files in the directory
+        audio_files = []
         for subdir, dirs, files in os.walk(src_directory):
-            counter = 1
             for file in files:
-                # Check if file is an audio file
                 if file.endswith('.wav'):
-                    # Process each audio file
-                    self.process_file(os.path.join(subdir, file), counter)
-                    counter += 1
+                    audio_files.append(os.path.join(subdir, file))
 
+        # Create a multiprocessing Pool
+        pool = Pool()
+
+        # Process each audio file in parallel
+        pool.map(self.process_file, audio_files)
+
+        # Close the pool and wait for all tasks to complete
+        pool.close()
+        pool.join()
     def process_file(self, file_path, counter):
         filename = os.path.basename(file_path)
         subfolder, treatment, dict_data = self.get_directory_info(file_path)
@@ -368,3 +385,4 @@ feature = 'ber'  # Specify the feature to extract
 processor = AudioProcessor(feature)
 processor.run()
 # open_and_show_gz_file()
+
