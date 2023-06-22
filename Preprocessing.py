@@ -12,9 +12,9 @@ import gzip
 import collections
 import shutil
 from typing import List
-from multiprocessing import Pool
+import multiprocessing
+from typing import Tuple
 FEATURE_ABBREVIATIONS = {
-    "mfcc": "mfcc",
     "amplitude_envelope": "ae",
     "root_mean_square": "rms",
     "zero_crossing_rate": "zcr",
@@ -134,90 +134,75 @@ def process_audio_interactive(full=False):
     else:
         print('No file selected.')
 
+def process_treatment(audio_processor, treatment):
+    treatment_dir = os.path.join(audio_processor.features_dir, treatment)
+    audio_files = audio_processor.audio_files_dict[treatment]
+    for file in audio_files:
+        print('file:', file)
+        audio_processor.process_file(file)
+
 
 class AudioProcessor:
-    def __init__(self, feature: str,
+    def __init__(self, feature: str, src_directory,
                  n_mfcc=13, frame_size=2048, hop_length=1024, num_segments=30):
         self.feature = feature  # Feature to extract from audio files
+        self.src_directory = src_directory
         self.file_extension = ".gz"
         self.n_mfcc = n_mfcc
         self.frame_size = frame_size
         self.hop_length = hop_length
         self.num_segments = num_segments
-        self.treatments = []
+        self.treatments = os.listdir(src_directory)
+        self.treatments_dir = []
         self.features_dir = None
 
-    def choose_file(self):
-        root = tk.Tk()
-        root.withdraw()
-        file_path = filedialog.askopenfilename(title="Select File")
-        root.destroy()
-        return file_path
 
-    def create_feature_directory(self, directory):
-        feature_directory = os.path.join(os.path.dirname(directory), self.feature)
+    def create_feature_directory(self):
+        feature_directory = os.path.join(os.path.dirname(self.src_directory), self.feature)
         os.makedirs(feature_directory, exist_ok=True)
         return feature_directory
 
-    def choose_src_directory(self):
-        root = tk.Tk()
-        root.withdraw()
-        src_directory = filedialog.askdirectory(title="Select Source Directory")
-        root.destroy()
-        return src_directory
-
-    def create_treatment_directories(self, src_directory):
-        treatments = os.listdir(src_directory)
-        self.treatments = treatments  # Fill treatments list
-        for treatment in treatments:
+    def create_treatment_directories(self):
+        for treatment in self.treatments:
             treatment_dir = os.path.join(self.features_dir, treatment)
+            self.treatments_dir.append(treatment_dir)
             os.makedirs(treatment_dir, exist_ok=True)
 
     def run(self):
-        src_directory = self.choose_src_directory()
-        self.features_dir = self.create_feature_directory(src_directory)
-        self.create_treatment_directories(src_directory)
-        self.process_directory(src_directory)
-        # self.process_file(self.choose_file())
+        self.features_dir = self.create_feature_directory()
+        self.create_treatment_directories()
+        processes = []
+        # Loop through the treatment directories in the original source directory
+        for i, treatment in enumerate(self.treatments):
+            treatment_dir_in_src = os.path.join(self.src_directory, treatment)  # Path in the original source directory
+            treatment_dir_in_features = os.path.join(self.features_dir, treatment)  # Path in the features_dir
+            process = multiprocessing.Process(target=self.process_treatment,
+                                              args=(treatment_dir_in_src, treatment_dir_in_features,))
+            process.start()
+            processes.append(process)
 
-    # def process_directory(self, src_directory):
-    #
-    #     # Iterate through files in source directory
-    #     for subdir, dirs, files in os.walk(src_directory):
-    #         counter = 1
-    #         for file in files:
-    #             # Check if file is an audio file
-    #             if file.endswith('.wav'):
-    #                 # Process each audio file
-    #                 self.process_file(os.path.join(subdir, file), counter)
-    #                 counter += 1
-    def process_directory(self, src_directory):
-        # Get list of audio files in the directory
-        audio_files = []
-        for subdir, dirs, files in os.walk(src_directory):
-            for file in files:
+        # Ensuring all processes have finished execution
+        for process in processes:
+            process.join()
+
+    def process_treatment(self, treatment_dir_in_src: str, treatment_dir_in_features: str) -> None:
+        # Iterate through the treatment directory and any subdirectories
+        for subdir, dirs, files in os.walk(treatment_dir_in_src):
+            for counter, file in enumerate(files, start=1):
                 if file.endswith('.wav'):
-                    audio_files.append(os.path.join(subdir, file))
+                    file_path = os.path.join(subdir, file)
+                    # Save results in treatment_dir_in_features
+                    self.process_file(file_path, counter, treatment_dir_in_features)
 
-        # Create a multiprocessing Pool
-        pool = Pool()
-
-        # Process each audio file in parallel
-        pool.map(self.process_file, audio_files)
-
-        # Close the pool and wait for all tasks to complete
-        pool.close()
-        pool.join()
-    def process_file(self, file_path, counter):
-        filename = os.path.basename(file_path)
-        subfolder, treatment, dict_data = self.get_directory_info(file_path)
-        gz_file_return = self.create_gz_file(filename, counter, subfolder, treatment)
+    def process_file(self, file_path, counter, treatment_dir_features):
+        # existing logic
+        filename, subfolder, treatment, dict_data = self.get_directory_info(file_path)
+        gz_file_return = self.create_gz_file(filename, counter, subfolder, treatment_dir_features)
         if gz_file_return is None:
             print(f"Skipping file {file_path} as it already exists.")
             return
         gz_json_file, gz_json_path = gz_file_return
         signal, sr = librosa.load(file_path, sr=44100)
-        print('signal, sr', signal, sr)
         num_samples_per_segment, expected_shape = self.get_expected_shape(signal, sr)
 
         for s in range(self.num_segments):
@@ -225,14 +210,12 @@ class AudioProcessor:
 
             if segment_signal is not None:
                 feature_vectors = self.extract_feature(segment_signal, sr)
-                print(f"The file {filename}, section: {s} is being processed...")
 
                 if self.check_feature_vectors(feature_vectors, expected_shape, filename, s):
                     self.update_dict_data(dict_data, feature_vectors, treatment, s)
 
         self.write_gz_json(dict_data, gz_json_path)
         self.write_metadata(sr, signal, feature_vectors)
-        print(f"The file {filename} has been processed.")
 
     def write_metadata(self, sr, signal, feature_vectors):
         metadata_file_path = os.path.join(self.features_dir, f'{self.feature}_metadata.txt')
@@ -254,13 +237,14 @@ class AudioProcessor:
         }
 
     def update_dict_data(self, dict_data, feature_vectors, treatment, s):
-        dict_data[self.feature].append(feature_vectors.tolist())
-        dict_data["labels"].append(self.treatments.index(treatment))
-        dict_data["segment_number"].append(s)
+        if treatment in self.treatments:
+            dict_data[self.feature].append(feature_vectors.tolist())
+            dict_data["labels"].append(self.treatments.index(treatment))
+            dict_data["segment_number"].append(s)
+        else:
+            print(f"Treatment {treatment} not found in self.treatments")
 
     def check_feature_vectors(self, feature_vectors, expected_shape, filename, s):
-        print('features_vectors', feature_vectors.shape)
-        print('expected shape', expected_shape)
         if len(feature_vectors) > 0:  # Check if feature_vectors is not empty
             if feature_vectors.shape != expected_shape:
                 with open('problem_files.txt', 'a') as f:
@@ -280,23 +264,33 @@ class AudioProcessor:
             return None
         return segment_signal
 
-    def create_gz_file(self, filename, counter, subfolder, treatment):
+    def create_gz_file(self, filename, counter, subfolder, treatment_dir_features):
         gz_json_file = filename.replace(filename, f"{str(counter).zfill(5)}_{subfolder}_{self.feature}.gz")
-        treatment_dir = os.path.join(self.features_dir, treatment)  # Get the corresponding treatment directory
-        os.makedirs(treatment_dir, exist_ok=True)  # Create treatment directory if it doesn't exist
-        gz_json_path = os.path.join(treatment_dir, gz_json_file)
+        gz_json_path = os.path.join(treatment_dir_features, gz_json_file)
         if os.path.isfile(gz_json_path):
-            print(f"'{gz_json_file}' file already exists in {treatment_dir}. Skipping this file.")
+            print(f"'{gz_json_file}' file already exists in {treatment_dir_features}. Skipping this file.")
             return None
         return gz_json_file, gz_json_path
 
     def get_directory_info(self, file_path):
-        filename = os.path.basename(file_path)
-        subfolder_path = os.path.dirname(file_path)
-        subfolder = os.path.basename(subfolder_path)
+        if not os.path.isfile(file_path):
+            print(f"Error: {file_path} is not a valid file.")
+            return None, None, None, None
 
-        treatment_path = os.path.dirname(subfolder_path)
-        treatment = os.path.basename(treatment_path)
+        # Check if the file is a .wav file
+        filename = os.path.basename(file_path)
+        if not filename.lower().endswith('.wav'):
+            print(f"Error: {filename} is not a .wav file.")
+            return None, None, None, None
+
+        # Extract subfolder and treatment from file_path
+        relative_path = os.path.relpath(file_path, self.src_directory)
+        parts = relative_path.split(os.path.sep)
+
+        # Assuming the structure is /treatment/subfolder/filename.wav
+        treatment = parts[0] if len(parts) > 1 else None
+        subfolder = parts[1] if len(parts) > 2 else None
+
         dict_data = {
             "path": file_path,
             "subfolder_name": subfolder,
@@ -305,7 +299,7 @@ class AudioProcessor:
             "labels": [],
             "segment_number": []
         }
-        return subfolder, treatment, dict_data
+        return filename, subfolder, treatment, dict_data
 
     def get_expected_shape(self, signal, sr):
         duration = librosa.get_duration(y=signal, sr=sr)
@@ -324,8 +318,7 @@ class AudioProcessor:
             return librosa.feature.mfcc(y=signal, n_fft=self.frame_size, n_mfcc=self.n_mfcc, hop_length=self.hop_length,
                                         sr=sr)
         # mfcc_delta = librosa.feature.delta(mfcc)
-        #
-        # # Compute second derivative (delta-delta) of MFCC
+        # Compute second derivative (delta-delta) of MFCC
         # mfcc_delta2 = librosa.feature.delta(mfcc, order=2)
         elif self.feature == "spectrogram":
             # Compute the spectrogram magnitude and phase
@@ -380,9 +373,12 @@ class AudioProcessor:
         with gzip.GzipFile(filename, 'w') as fout:
             fout.write(json_bytes)
 
-# Example usage
-feature = 'ber'  # Specify the feature to extract
-processor = AudioProcessor(feature)
-processor.run()
-# open_and_show_gz_file()
+if __name__ == "__main__":
+    root = tk.Tk()
+    root.withdraw()
+    src_directory = filedialog.askdirectory(title="Select Source Directory")
+    root.destroy()
 
+    for value in FEATURE_ABBREVIATIONS.values():
+        processor = AudioProcessor(value, src_directory)
+        processor.run()
