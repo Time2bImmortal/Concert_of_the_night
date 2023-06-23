@@ -7,10 +7,11 @@ import gzip
 import random
 from tkinter import filedialog
 import tkinter as tk
+from tqdm import tqdm
 
 
 class DataLoader:
-    def __init__(self, folder_path, num_files_per_treatment=25):
+    def __init__(self, folder_path, num_files_per_treatment=150):
         self.folder_path = folder_path
         self.num_files_per_treatment = num_files_per_treatment
         self.X, self.y = self.load_data_from_folder()
@@ -24,18 +25,22 @@ class DataLoader:
         y = np.array(data["labels"])
         return X, y
 
-    def load_data_from_folder(self):
+    def load_data_from_folder(self, min_file_size=7000000, max_file_size=8000000):
         X, y = [], []
         correct_shape = None
 
-        for treatment in os.listdir(self.folder_path):
-            if treatment:
-                treatment_path = os.path.join(self.folder_path, treatment)
-                if os.path.isdir(treatment_path):
-                    all_files = [f for f in os.listdir(treatment_path) if f.endswith('.gz')]
-                    selected_files = random.sample(all_files, self.num_files_per_treatment)
-                    for file in selected_files:
-                        X_temp, y_temp = self.load_data(os.path.join(treatment_path, file))
+        treatments = os.listdir(self.folder_path)
+        for treatment in treatments:
+            treatment_path = os.path.join(self.folder_path, treatment)
+            if os.path.isdir(treatment_path):
+                all_files = [f for f in os.listdir(treatment_path) if f.endswith('.gz')]
+                selected_files = random.sample(all_files, self.num_files_per_treatment)
+                print(f"Processing treatment: {treatment}")
+                for file in tqdm(selected_files, desc="Loading files"):
+                    file_path = os.path.join(treatment_path, file)
+                    file_size = os.path.getsize(file_path)
+                    if min_file_size <= file_size <= max_file_size:
+                        X_temp, y_temp = self.load_data(file_path)
                         if correct_shape is None:
                             correct_shape = X_temp.shape
                         if X_temp.shape == correct_shape:
@@ -45,7 +50,7 @@ class DataLoader:
         if X:
             X = np.concatenate(X, axis=0)
             y = np.concatenate(y, axis=0)
-            print("Data successfully loaded!")
+            print("\nData successfully loaded!")
         else:
             print("No valid data loaded!")
 
@@ -89,7 +94,15 @@ class ModelTrainer:
         model.summary()
         return model
 
-    def train_model(self, batch_size=16, epochs=50):
+    def save_model_if_good(self, correct_preds, total_preds, save_dir='saved_models'):
+        accuracy = correct_preds / total_preds
+        if accuracy >= 0.8:
+            os.makedirs(save_dir, exist_ok=True)
+            model_file_path = os.path.join(save_dir, f'model_accuracy_{accuracy:.2f}.h5')
+            self.model.save(model_file_path)
+            print(f'Model saved at {model_file_path}')
+
+    def train_model(self, batch_size=16, epochs=25):
         X_train, X_test, y_train, y_test = train_test_split(self.X, self.y, test_size=0.3)
 
         # Normalize only after splitting to prevent data leakage
@@ -106,6 +119,8 @@ class ModelTrainer:
 
         correct_preds = np.sum(y_test == y_pred_classes)
         print(f'Correct predictions: {correct_preds} out of {len(y_test)}')
+        total_preds = len(y_test)
+        self.save_model_if_good(correct_preds, total_preds)
 
 
 if __name__ == "__main__":
