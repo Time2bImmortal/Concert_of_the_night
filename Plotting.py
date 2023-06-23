@@ -7,12 +7,12 @@ import tkinter as tk
 from tkinter import filedialog
 import pandas as pd
 FEATURES_TO_PLOT = {
-    'ae': (100000, 200000),
-    "rms": (100000, 200000),
+    'ae': (80000, 200000),
+    "rms": (600000, 800000),
     "zcr": (100000, 200000),
-    "bw": (100000, 200000),
-    "sc": (100000, 200000),
-    "ber": (100000, 200000)
+    "bw": (600000, 800000),
+    "sc": (600000, 800000),
+    "ber": (400000, 750000)
 }
 
 def plot_mean_feature_treatment(directory: str, data_dict: dict):
@@ -66,14 +66,34 @@ def plot_mean_feature_treatment(directory: str, data_dict: dict):
         # Compute means for each treatment and plot them
         for treatment, concatenated_segments_list in treatment_concatenated_means.items():
             print(f"\nCalculating mean for {treatment}.")
+            # This is just before you calculate the mean
+            try:
+                # Filter out elements that do not have the expected shape
+                expected_shape = (29, 2584)
+                concatenated_segments_list = [segment for segment in concatenated_segments_list if
+                                              np.shape(segment) == expected_shape]
 
-            # Compute the mean across the concatenated segments for the current treatment
-            mean_features = np.mean(concatenated_segments_list, axis=0)
-            print(f"Shape of mean_features for {treatment}: {mean_features.shape}")
-            mean_features_series = pd.Series(mean_features)
+                # Check the shape of the filtered concatenated_segments_list
+                print("concatenated_segments_list shape after filtering:", np.shape(concatenated_segments_list))
+
+                # Compute the mean across the concatenated segments for the current treatment
+                mean_features = np.mean(concatenated_segments_list, axis=0)
+                print(f"Shape of mean_features for {treatment}: {mean_features.shape}")
+            except ValueError as e:
+                print(f"An error occurred while processing treatment {treatment}: {e}")
+                continue
+
+            # # Compute the mean across the concatenated segments for the current treatment
+            # mean_features = np.mean(concatenated_segments_list, axis=0)
+            # mean_features = mean_features.flatten()
+            #
+            # print(f"Shape of mean_features for {treatment}: {mean_features.shape}")
+            # mean_features_series = pd.Series(mean_features)
+            mean_features_series = pd.Series(mean_features.flatten())
+            smooth_mean = mean_features_series.rolling(window=100).mean()
 
             # Apply the rolling mean with a window size of 10
-            smooth_mean = mean_features_series.rolling(window=100).mean()
+            # smooth_mean = mean_features_series.rolling(window=100).mean()
 
             # The corresponding sample_index should also be adjusted to match the length of smooth_mean
             sample_index = np.linspace(0, len(smooth_mean) - 1, len(smooth_mean))

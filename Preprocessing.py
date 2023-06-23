@@ -1,7 +1,7 @@
 import os
 import librosa
 import matplotlib.pyplot as plt
-from matplotlib import animation
+# from matplotlib import animation
 import soundfile as sf
 import numpy as np
 import json
@@ -379,6 +379,5 @@ if __name__ == "__main__":
     src_directory = filedialog.askdirectory(title="Select Source Directory")
     root.destroy()
 
-    for value in FEATURE_ABBREVIATIONS.values():
-        processor = AudioProcessor(value, src_directory)
-        processor.run()
+    processor = AudioProcessor('mfcc', src_directory)
+    processor.run()
