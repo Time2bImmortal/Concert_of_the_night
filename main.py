@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 
 class DataLoader:
-    def __init__(self, folder_path, num_files_per_treatment=150):
+    def __init__(self, folder_path, num_files_per_treatment=256):
         self.folder_path = folder_path
         self.num_files_per_treatment = num_files_per_treatment
         self.X, self.y = self.load_data_from_folder()
@@ -76,11 +76,11 @@ class ModelTrainer:
             keras.layers.Conv2D(32, (3, 3), activation='relu',
                                 input_shape=(self.X.shape[1], self.X.shape[2], self.X.shape[3])),
             keras.layers.MaxPooling2D((3, 3), strides=(2, 2), padding='same'),
-            keras.layers.Dropout(0.25),
+            keras.layers.Dropout(0.1),
 
             keras.layers.Conv2D(64, (3, 3), activation='relu'),
             keras.layers.MaxPooling2D((3, 3), strides=(2, 2), padding='same'),
-            keras.layers.Dropout(0.25),
+            keras.layers.Dropout(0.1),
 
             keras.layers.Flatten(),
             keras.layers.Dense(64, activation='relu'),
@@ -102,17 +102,23 @@ class ModelTrainer:
             self.model.save(model_file_path)
             print(f'Model saved at {model_file_path}')
 
-    def train_model(self, batch_size=16, epochs=25):
-        X_train, X_test, y_train, y_test = train_test_split(self.X, self.y, test_size=0.3)
+    def train_model(self, batch_size=32, epochs=100):
+        # First split to separate out the test set
+        X_train_val, X_test, y_train_val, y_test = train_test_split(self.X, self.y, test_size=0.2)
+        # Second split to separate out the training and validation sets
+        X_train, X_val, y_train, y_val = train_test_split(X_train_val, y_train_val, test_size=0.25)
 
         # Normalize only after splitting to prevent data leakage
         X_train -= np.mean(X_train, axis=0)
         X_train /= np.std(X_train, axis=0)
 
+        X_val -= np.mean(X_val, axis=0)
+        X_val /= np.std(X_val, axis=0)
+
         X_test -= np.mean(X_test, axis=0)
         X_test /= np.std(X_test, axis=0)
 
-        history = self.model.fit(X_train, y_train, validation_data=(X_test, y_test), batch_size=batch_size, epochs=epochs)
+        history = self.model.fit(X_train, y_train, validation_data=(X_val, y_val), batch_size=batch_size, epochs=epochs)
 
         y_pred = self.model.predict(X_test)
         y_pred_classes = np.argmax(y_pred, axis=1)
