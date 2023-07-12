@@ -1,12 +1,17 @@
-import soundfile
+import soundfile as sf
 import json
 import gzip
 import matplotlib.pyplot as plt
 import librosa
-import tkinter as tk
 from tkinter import filedialog
+from tkinter import Tk
 import numpy as np
+import os
+import shutil
 
+treatment_mapping = {
+        "ALAN2": "2lux", "ALAN5": "5lux", "Gb12": "LD", "Gb24": "LL",
+    }
 
 def write_gz_json(json_obj, filename):
     json_str = json.dumps(json_obj) + "\n"
@@ -107,3 +112,54 @@ def save_and_compare_audio(filename):
         print("The two files contain identical data.")
     else:
         print("The two files do not contain identical data.")
+def copy_missing_wav_files(treatment_mapping):
+    """
+    Copies .wav files from a source subfolder to the corresponding subfolder
+    under the corresponding treatment folder in the destination directory, based on the name of the source subfolder.
+    If the subfolder under the treatment folder does not exist, it is created.
+    """
+
+    # Create root Tk window and hide it
+    root = Tk()
+    root.withdraw()
+
+    # Ask for source and destination folders
+    src_folder = filedialog.askdirectory(title="Select Source Folder")
+    dest_folder = filedialog.askdirectory(title="Select Destination Folder")
+
+    # Ensure folders exist
+    if not os.path.exists(src_folder):
+        print(f"Source folder {src_folder} does not exist.")
+        return
+
+    if not os.path.exists(dest_folder):
+        print(f"Destination folder {dest_folder} does not exist.")
+        return
+
+    # Walk through source directory, including subdirectories
+    for dirpath, dirnames, filenames in os.walk(src_folder):
+        # Get the source subfolder name
+        src_subfolder = os.path.basename(dirpath)
+
+        # Determine the treatment based on the source subfolder name
+        for key, value in treatment_mapping.items():
+            if key in src_subfolder:
+                treatment = value
+                break
+        else:
+            continue  # No treatment found for this subfolder, skip
+
+        # Compute destination path for current treatment and source subfolder
+        dst_dirpath = os.path.join(dest_folder, treatment, src_subfolder)
+
+        # Create directory if it doesn't exist
+        os.makedirs(dst_dirpath, exist_ok=True)
+
+        for filename in filenames:
+            # Check if it's a .wav file and if it doesn't exist in the destination directory
+            if filename.endswith('.wav') and not os.path.exists(os.path.join(dst_dirpath, filename)):
+                # Copy the file to the destination directory
+                shutil.copy2(os.path.join(dirpath, filename), dst_dirpath)
+
+    print(f"Copying from {src_folder} to {dest_folder} completed.")
+copy_missing_wav_files(treatment_mapping)
