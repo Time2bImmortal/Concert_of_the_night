@@ -1,7 +1,6 @@
 import os
 import librosa
 import matplotlib.pyplot as plt
-# from matplotlib import animation
 import soundfile as sf
 import numpy as np
 import json
@@ -14,76 +13,19 @@ import shutil
 from typing import List
 import multiprocessing
 from typing import Tuple
+import supporting_functions
+"""
+Here, we preprocess audio files that are already organized in a specific folder structure: 
+Folder > Treatments > Subfolders > Audio files.
+
+The main objective is to create condensed gzip files that contain the extracted sound features, along with the
+corresponding file name, subfolder, treatment, and format information."""
+
+
 FEATURE_ABBREVIATIONS = {
-    "amplitude_envelope": "ae",
-    "root_mean_square": "rms",
-    "zero_crossing_rate": "zcr",
-    "spectral_bandwidth": "bw",
-    "spectral_centroid": "sc",
-    "band_energy_ration": "ber"
+    "amplitude_envelope": "ae", "root_mean_square": "rms", "zero_crossing_rate": "zcr", "spectral_bandwidth": "bw",
+    "spectral_centroid": "sc", "band_energy_ration": "ber"
 }
-
-def open_and_show_gz_file():
-    tk.Tk().withdraw()  # Hide the Tkinter root window
-
-    file = filedialog.askopenfile(filetypes=[('GZ files', '*.gz')])
-    if file is None:
-        print("No file selected.")
-        return
-
-    try:
-        with gzip.open(file.name, 'rt') as gz_file:
-            content = gz_file.read()
-            print(content)
-    except FileNotFoundError:
-        print("File not found.")
-    except gzip.BadGzipFile:
-        print("Invalid .gz file.")
-    except Exception as e:
-        print("An error occurred:", str(e))
-
-
-def get_samplerate(audio_file_path):
-    data, samplerate = sf.read(audio_file_path)
-    print(f'The file has a samplerate of: {samplerate}')
-    return samplerate
-
-
-def display_waveform(signal, sr):
-    plt.figure()
-    librosa.display.waveshow(signal, sr=sr)
-    plt.xlabel('Time')
-    plt.ylabel('Amplitude')
-    plt.title('Waveform')
-    plt.show()
-
-
-# def save_and_compare_audio(filename):
-#     # Load the audio file
-#     signal, sr = librosa.load(filename)
-#
-#     # Save the audio data to a json file
-#     json_filename = filename.replace('.wav', '.json')
-#     with open(json_filename, 'w') as json_file:
-#         json.dump(signal.tolist(), json_file)
-#
-#     # Save the audio data to a gzipped json file
-#     gz_filename = filename.replace('.wav', '.gz')
-#     write_gz_json(signal.tolist(), gz_filename)
-#
-#     # Load the json data
-#     with open(json_filename, 'r') as json_file:
-#         json_data = np.array(json.load(json_file))
-#
-#     # Load the gzipped json data
-#     with gzip.GzipFile(gz_filename, 'r') as gz_file:
-#         gz_data = np.array(json.loads(gz_file.read().decode('utf-8')))
-#
-#     # Compare the two data arrays
-#     if np.array_equal(json_data, gz_data):
-#         print("The two files contain identical data.")
-#     else:
-#         print("The two files do not contain identical data.")
 
 
 class AudioExplorer:
