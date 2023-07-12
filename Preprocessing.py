@@ -29,6 +29,21 @@ FEATURE_ABBREVIATIONS = {
 
 
 class AudioExplorer:
+    """
+            Initialize the AudioExplorer class.
+
+            Args:
+                filename (str): The filename of the audio file to explore.
+                full (bool, optional): Flag to indicate whether to display the full waveform or a segment.
+                    Defaults to False.
+
+            This constructor initializes the AudioExplorer object by loading the audio file using `librosa.load()`.
+            It sets the `full` flag to determine the display mode (full waveform or segment).
+            The `duration` attribute is set to 60 seconds if `full` is False, otherwise it is calculated based on the length
+            of the signal divided by the sample rate (`len(self.signal) / self.sr`).
+            The `current_time` attribute is initialized to 0.
+            The `fig` and `ax` attributes are created to hold the figure and axes for the plot.
+            """
     def __init__(self, filename, full=False):
         self.signal, self.sr = librosa.load(filename)
         self.full = full
@@ -37,6 +52,15 @@ class AudioExplorer:
         self.fig, self.ax = plt.subplots()
 
     def display_waveform(self):
+        """
+                Display the waveform plot.
+
+                This method clears the axes and plots the waveform based on the current display mode (`full` flag).
+                If `full` is True, it uses `librosa.display.waveshow()` to plot the full waveform.
+                If `full` is False, it selects a segment of the waveform based on the `current_time` attribute and plots it.
+                The plot's title, x-label, and y-label are set accordingly.
+                The plot is updated on the canvas.
+                """
         self.ax.clear()
         if self.full:
             librosa.display.waveshow(self.signal, sr=self.sr, ax=self.ax)
@@ -51,6 +75,19 @@ class AudioExplorer:
         self.fig.canvas.draw()
 
     def on_key(self, event):
+        """
+                Event handler for key presses.
+
+                Args:
+                    event: The key press event.
+
+                This method handles the key presses for navigating the waveform plot.
+                If the 'right' arrow key is pressed and the next segment is within the audio range,
+                the `current_time` attribute is updated accordingly.
+                If the 'left' arrow key is pressed and the previous segment is within the audio range,
+                the `current_time` attribute is updated accordingly.
+                The waveform plot is then updated.
+                """
         if event.key == 'right' and (self.current_time + 2 * self.duration) * self.sr < len(self.signal):
             self.current_time += self.duration
         elif event.key == 'left' and self.current_time >= self.duration:
