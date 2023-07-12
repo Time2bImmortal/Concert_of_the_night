@@ -112,6 +112,7 @@ def save_and_compare_audio(filename):
         print("The two files contain identical data.")
     else:
         print("The two files do not contain identical data.")
+
 def copy_missing_wav_files(treatment_mapping):
     """
     Copies .wav files from a source subfolder to the corresponding subfolder
@@ -155,9 +156,9 @@ def copy_missing_wav_files(treatment_mapping):
         # Create directory if it doesn't exist and copy all .wav files
         if not os.path.exists(dst_dirpath):
             os.makedirs(dst_dirpath)
-            for filename in filenames:
-                if filename.endswith('.wav'):
-                    shutil.copy2(os.path.join(dirpath, filename), dst_dirpath)
+            wav_files = [f for f in filenames if f.endswith('.wav')]
+            for wav_file in wav_files:
+                shutil.copy2(os.path.join(dirpath, wav_file), dst_dirpath)
         else:  # Only copy the .wav files that don't already exist in the destination subfolder
             for filename in filenames:
                 if filename.endswith('.wav') and not os.path.exists(os.path.join(dst_dirpath, filename)):
