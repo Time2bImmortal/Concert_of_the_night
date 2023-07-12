@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 
 class DataLoader:
-    def __init__(self, folder_path, num_files_per_treatment=256):
+    def __init__(self, folder_path, num_files_per_treatment=386):
         self.folder_path = folder_path
         self.num_files_per_treatment = num_files_per_treatment
         self.X, self.y = self.load_data_from_folder()
@@ -102,7 +102,7 @@ class ModelTrainer:
             self.model.save(model_file_path)
             print(f'Model saved at {model_file_path}')
 
-    def train_model(self, batch_size=32, epochs=100):
+    def train_model(self, batch_size=32, epochs=150):
         # First split to separate out the test set
         X_train_val, X_test, y_train_val, y_test = train_test_split(self.X, self.y, test_size=0.2)
         # Second split to separate out the training and validation sets

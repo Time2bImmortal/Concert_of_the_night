@@ -12,6 +12,7 @@ import collections
 import shutil
 from typing import List
 import multiprocessing
+import glob
 from typing import Tuple
 import supporting_functions
 """
@@ -196,37 +197,44 @@ class AudioProcessor:
         """
         self.features_dir = self.create_feature_directory()
         self.create_treatment_directories()
-        processes = []
 
+        # Calculate the minimum number of .wav files across all treatment directories
+        min_file_count = min(
+            len(glob.glob(os.path.join(self.src_directory, treatment, '**/*.wav'), recursive=True))
+            for treatment in self.treatments
+        )
+
+        processes = []
         for i, treatment in enumerate(self.treatments):
             treatment_dir_in_src = os.path.join(self.src_directory, treatment)
             treatment_dir_in_features = os.path.join(self.features_dir, treatment)
-            process = multiprocessing.Process(target=self.process_treatment,
-                                              args=(treatment_dir_in_src, treatment_dir_in_features,))
+            process = multiprocessing.Process(
+                target=self.process_treatment,
+                args=(treatment_dir_in_src, treatment_dir_in_features, min_file_count,))
             process.start()
             processes.append(process)
 
         for process in processes:
             process.join()
 
-    def process_treatment(self, treatment_dir_in_src: str, treatment_dir_in_features: str) -> None:
+    def process_treatment(self, treatment_dir_in_src: str, treatment_dir_in_features: str, file_count: int) -> None:
         """
         Process the audio files in a treatment directory.
 
         Args:
             treatment_dir_in_src (str): The path of the treatment directory in the source directory.
             treatment_dir_in_features (str): The path of the treatment directory in the features directory.
+            file_count (int): The number of files to process in each directory.
 
         This method processes the audio files in a treatment directory and its subdirectories.
         It iterates through the files, checks if they are .wav files, and processes each valid file.
         The processing involves extracting features from the audio file and saving the results in the
         corresponding treatment directory in the feature's directory.
         """
-        for subdir, dirs, files in os.walk(treatment_dir_in_src):
-            for counter, file in enumerate(files, start=1):
-                if file.endswith('.wav'):
-                    file_path = os.path.join(subdir, file)
-                    self.process_file(file_path, counter, treatment_dir_in_features)
+        wav_files = glob.glob(os.path.join(treatment_dir_in_src, '**/*.wav'), recursive=True)
+        wav_files = wav_files[:file_count]  # Only take the first `file_count` files
+        for counter, file_path in enumerate(wav_files, start=1):
+            self.process_file(file_path, counter, treatment_dir_in_features)
 
     def process_file(self, file_path, counter, treatment_dir_features):
         """
@@ -242,6 +250,7 @@ class AudioProcessor:
         Additionally, metadata and details of the feature extraction are written to a metadata file.
         """
         filename, subfolder, treatment, dict_data = self.get_directory_info(file_path)
+        print(filename, "is being processed in", treatment)
         gz_file_return = self.create_gz_file(filename, counter, subfolder, treatment_dir_features)
         if gz_file_return is None:
             print(f"Skipping file {file_path} as it already exists.")
