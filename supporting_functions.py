@@ -150,19 +150,26 @@ def copy_missing_wav_files(treatment_mapping):
         else:
             continue  # No treatment found for this subfolder, skip
 
+        # Get all .wav files
+        wav_files = [f for f in filenames if f.endswith('.wav')]
+
+        # Check if there are any .wav files
+        if not wav_files:
+            print(f"No .wav files found in source subfolder {src_subfolder}. Skipping this subfolder.")
+            continue
+
         # Compute destination path for current treatment and source subfolder
         dst_dirpath = os.path.join(dest_folder, treatment, src_subfolder)
 
         # Create directory if it doesn't exist and copy all .wav files
         if not os.path.exists(dst_dirpath):
             os.makedirs(dst_dirpath)
-            wav_files = [f for f in filenames if f.endswith('.wav')]
             for wav_file in wav_files:
                 shutil.copy2(os.path.join(dirpath, wav_file), dst_dirpath)
         else:  # Only copy the .wav files that don't already exist in the destination subfolder
-            for filename in filenames:
-                if filename.endswith('.wav') and not os.path.exists(os.path.join(dst_dirpath, filename)):
-                    shutil.copy2(os.path.join(dirpath, filename), dst_dirpath)
+            for wav_file in wav_files:
+                if not os.path.exists(os.path.join(dst_dirpath, wav_file)):
+                    shutil.copy2(os.path.join(dirpath, wav_file), dst_dirpath)
 
     print(f"Copying from {src_folder} to {dest_folder} completed.")
 
