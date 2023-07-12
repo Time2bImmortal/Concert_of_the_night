@@ -8,7 +8,7 @@ import random
 from tkinter import filedialog
 import tkinter as tk
 from tqdm import tqdm
-
+from sklearn.preprocessing import LabelEncoder
 
 class DataLoader:
     def __init__(self, folder_path, num_files_per_treatment=386):
@@ -117,6 +117,11 @@ class ModelTrainer:
 
         X_test -= np.mean(X_test, axis=0)
         X_test /= np.std(X_test, axis=0)
+
+        # Label encoding
+        label_encoder = LabelEncoder()
+        y_train = label_encoder.fit_transform(y_train)
+        y_val = label_encoder.transform(y_val)
 
         history = self.model.fit(X_train, y_train, validation_data=(X_val, y_val), batch_size=batch_size, epochs=epochs)
 
