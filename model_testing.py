@@ -8,7 +8,8 @@ import numpy as np
 import os
 import  gzip
 import json
-import hashlib
+
+
 class ModelEvaluator:
     def __init__(self, model_path):
         self.model = keras.models.load_model(model_path)
