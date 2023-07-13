@@ -13,6 +13,79 @@ treatment_mapping = {
         "ALAN2": "2lux", "ALAN5": "5lux", "Gb12": "LD", "Gb24": "LL",
     }
 
+def extract_subfolder_from_filename(filename):
+    parts = filename.split('_')
+    if len(parts) > 1:
+        return parts[1]
+    return None
+
+
+def get_file_info(folder_path):
+    file_info = {}
+    subfolders = set()
+    for root, dirs, files in os.walk(folder_path):
+        for file in files:
+            if file.endswith('.gz'):
+                subfolder = extract_subfolder_from_filename(file)
+                if subfolder:
+                    subfolders.add(subfolder)
+                    file_path = os.path.join(root, file)
+                    with gzip.open(file_path, 'rt') as f:
+                        dict_data = json.load(f)
+                        filename = dict_data["filename"]
+                        key = f"{subfolder}/{filename}"
+                        file_info[key] = file_path
+    return file_info, subfolders
+
+
+def get_train_subfolders(train_folder):
+    subfolders = set()
+    for root, dirs, files in os.walk(train_folder):
+        for file in files:
+            if file.endswith('.gz'):
+                subfolder = extract_subfolder_from_filename(file)
+                if subfolder:
+                    subfolders.add(subfolder)
+    return subfolders
+
+
+def delete_common_files(train_folder, test_folder):
+    train_subfolders = get_train_subfolders(train_folder)
+
+    for root, dirs, files in os.walk(test_folder):
+        print(root)
+        for file in files:
+            print(file)
+            if file.endswith('.gz'):
+                test_subfolder = extract_subfolder_from_filename(file)
+                if test_subfolder in train_subfolders:
+                    test_file_path = os.path.join(root, file)
+                    with gzip.open(test_file_path, 'rt') as f:
+                        test_dict_data = json.load(f)
+                        test_filename = test_dict_data["filename"]
+
+                    deleted = False
+                    for train_root, train_dirs, train_files in os.walk(train_folder):
+                        if deleted:
+                            break
+                        for train_file in train_files:
+                            if train_file.endswith('.gz') and extract_subfolder_from_filename(
+                                    train_file) == test_subfolder:
+                                train_file_path = os.path.join(train_root, train_file)
+                                with gzip.open(train_file_path, 'rt') as f:
+                                    train_dict_data = json.load(f)
+                                    train_filename = train_dict_data["filename"]
+
+                                if test_filename == train_filename:
+                                    try:
+                                        os.remove(test_file_path)
+                                        print(f"Deleted: {test_file_path}")
+                                        deleted = True
+                                        break
+                                    except OSError as e:
+                                        print(f"Error deleting {test_file_path}: {e}")
+
+
 def write_gz_json(json_obj, filename):
     json_str = json.dumps(json_obj) + "\n"
     json_bytes = json_str.encode('utf-8')
