@@ -151,12 +151,7 @@ class AudioProcessor:
         self.treatments = os.listdir(src_directory)
         self.treatments_dir = []
         self.features_dir = None
-        self.treatments_mapping = {
-            "2lux": "2lux",
-            "5lux": "5lux",
-            "LL": "LL",
-            "LD": "LD"
-        }
+
 
 
     def create_feature_directory(self):
@@ -308,6 +303,8 @@ class AudioProcessor:
         The details include the sampling rate, number of segments, duration, hop length,
         frame size, and shape of the extracted feature vectors.
         """
+        treatment_indices = {treatment: i for i, treatment in enumerate(self.treatments)}
+
         return {
             "Sampling rate": sr,
             "Number of segments": self.num_segments,
@@ -315,6 +312,7 @@ class AudioProcessor:
             "Hop length": self.hop_length,
             "Frame size": self.frame_size,
             "Shape of the feature extracted": feature_vectors.shape,
+            "Treatments and indices": treatment_indices
         }
 
     def update_dict_data(self, dict_data, feature_vectors, treatment, s):
@@ -331,10 +329,9 @@ class AudioProcessor:
         It appends the feature vectors to the corresponding feature key in the dictionary.
         It appends the treatment label and segment number to their respective keys.
         """
-        treatment_label = self.treatments_mapping.get(treatment)
-        if treatment_label is not None:
+        if treatment in self.treatments:
             dict_data[self.feature].append(feature_vectors.tolist())
-            dict_data["labels"].append(treatment_label)
+            dict_data["labels"].append(self.treatments.index(treatment))
             dict_data["segment_number"].append(s)
         else:
             print(f"Treatment {treatment} not found in self.treatments")

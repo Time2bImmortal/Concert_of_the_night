@@ -11,7 +11,7 @@ from tqdm import tqdm
 from sklearn.preprocessing import LabelEncoder
 
 class DataLoader:
-    def __init__(self, folder_path, num_files_per_treatment=386):
+    def __init__(self, folder_path, num_files_per_treatment=10):
         self.folder_path = folder_path
         self.num_files_per_treatment = num_files_per_treatment
         self.X, self.y = self.load_data_from_folder()
@@ -60,32 +60,32 @@ class DataLoader:
 class ModelTrainer:
     def __init__(self, X, y):
         self.X = X
-        self.X = np.expand_dims(X, axis=-1)
+        # self.X = np.expand_dims(X, axis=-1)
         self.y = y
         self.model = self.build_model()
 
     def build_model(self):
-        # model = keras.Sequential([
-        #     keras.layers.Flatten(input_shape=(self.X.shape[1], self.X.shape[2])),
-        #     keras.layers.Dense(512, activation='relu'),
-        #     keras.layers.Dense(256, activation='relu'),
-        #     keras.layers.Dense(64, activation='relu'),
-        #     keras.layers.Dense(10, activation='softmax')
-        # ])
         model = keras.Sequential([
-            keras.layers.Conv2D(32, (3, 3), activation='relu',
-                                input_shape=(self.X.shape[1], self.X.shape[2], self.X.shape[3])),
-            keras.layers.MaxPooling2D((3, 3), strides=(2, 2), padding='same'),
-            keras.layers.Dropout(0.1),
-
-            keras.layers.Conv2D(64, (3, 3), activation='relu'),
-            keras.layers.MaxPooling2D((3, 3), strides=(2, 2), padding='same'),
-            keras.layers.Dropout(0.1),
-
-            keras.layers.Flatten(),
+            keras.layers.Flatten(input_shape=(self.X.shape[1], self.X.shape[2])),
+            keras.layers.Dense(512, activation='relu'),
+            keras.layers.Dense(256, activation='relu'),
             keras.layers.Dense(64, activation='relu'),
             keras.layers.Dense(10, activation='softmax')
         ])
+        # model = keras.Sequential([
+        #     keras.layers.Conv2D(32, (3, 3), activation='relu',
+        #                         input_shape=(self.X.shape[1], self.X.shape[2], self.X.shape[3])),
+        #     keras.layers.MaxPooling2D((3, 3), strides=(2, 2), padding='same'),
+        #     keras.layers.Dropout(0.1),
+        #
+        #     keras.layers.Conv2D(64, (3, 3), activation='relu'),
+        #     keras.layers.MaxPooling2D((3, 3), strides=(2, 2), padding='same'),
+        #     keras.layers.Dropout(0.1),
+        #
+        #     keras.layers.Flatten(),
+        #     keras.layers.Dense(64, activation='relu'),
+        #     keras.layers.Dense(10, activation='softmax')
+        # ])
 
         optimiser = keras.optimizers.Adam(learning_rate=0.0001)
         model.compile(optimizer=optimiser,
@@ -102,7 +102,7 @@ class ModelTrainer:
             self.model.save(model_file_path)
             print(f'Model saved at {model_file_path}')
 
-    def train_model(self, batch_size=32, epochs=150):
+    def train_model(self, batch_size=32, epochs=5):
         # First split to separate out the test set
         X_train_val, X_test, y_train_val, y_test = train_test_split(self.X, self.y, test_size=0.2)
         # Second split to separate out the training and validation sets
