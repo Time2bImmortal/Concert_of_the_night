@@ -29,19 +29,22 @@ class ModelEvaluator:
         cm = confusion_matrix(y, y_pred_classes)
         return cm
 
-    def plot_confusion_matrix(self, confusion_mat):
-        disp = ConfusionMatrixDisplay(confusion_matrix=confusion_mat)
-        disp.plot(cmap=plt.cm.Blues)
-        plt.show()
+    def plot_confusion_matrix(self, confusion_mat, treatments_indices):
+        # Get the treatment names sorted by their indices
+        labels = [name for name, idx in sorted(treatments_indices.items(), key=lambda item: item[1])]
 
+        disp = ConfusionMatrixDisplay(confusion_matrix=confusion_mat, display_labels=labels)
+        disp.plot(cmap=plt.cm.Blues)
+        plt.xticks(rotation=45)  # This can help if the labels are long and overlapping
+        plt.show()
 
 
 if __name__ == "__main__":
     # Ask for the train and test folders
     root = tk.Tk()
     root.withdraw()
-
-    # print("Select the train folder")
+    treatments_indices = {'2lux': 0, '5lux': 1, 'LD': 2, 'LL': 3}
+    print("Select the train folder")
     train_folder = filedialog.askdirectory()
 
     print("Select the test folder")
@@ -56,10 +59,10 @@ if __name__ == "__main__":
 
     # Assuming DataLoader is a class you have defined to load data
     # Load new data
-    data_loader = DataLoader(test_folder, 40)  # Please make sure DataLoader class is defined somewhere
+    data_loader = DataLoader(test_folder, 100)  # Please make sure DataLoader class is defined somewhere
 
     # Evaluate
     confusion_mat = evaluator.evaluate(data_loader.X, data_loader.y)
 
     # Plot confusion matrix
-    evaluator.plot_confusion_matrix(confusion_mat)
+    evaluator.plot_confusion_matrix(confusion_mat, treatments_indices)

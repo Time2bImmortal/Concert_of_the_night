@@ -8,6 +8,7 @@ from tkinter import Tk
 import numpy as np
 import os
 import shutil
+import random
 
 treatment_mapping = {
         "ALAN2": "2lux", "ALAN5": "5lux", "Gb12": "LD", "Gb24": "LL",
@@ -249,3 +250,69 @@ def copy_missing_wav_files(treatment_mapping):
     print(f"Copying from {src_folder} to {dest_folder} completed.")
 
 # copy_missing_wav_files(treatment_mapping)
+
+def copy_files_not_in_source(num_files, treatment_mapping):
+    """
+    Copies a specified number of .wav files from the 'complete' folder to a new 'test' directory.
+    The 'test' directory structure is based on the 'source' directory.
+    Only files that are not present in the 'source' folder are copied.
+    """
+
+    # Create root Tk window and hide it
+    root = Tk()
+    root.withdraw()
+
+    # Ask for source and complete folders
+    source_folder = filedialog.askdirectory(title="Select Source Folder")
+    complete_folder = filedialog.askdirectory(title="Select Complete Folder")
+
+    # Create the 'test' directory
+    test_folder = os.path.join(os.path.dirname(source_folder), 'test')
+    if not os.path.exists(test_folder):
+        os.makedirs(test_folder)
+
+    # Get a list of all .wav files in the source directory
+    source_files = [file for dirpath, _, files in os.walk(source_folder) for file in files if file.endswith('.wav')]
+
+    # Prepare a dictionary to count how many files have been copied for each treatment
+    treatment_counter = {treatment: 0 for treatment in treatment_mapping.values()}
+
+    # Iterate over the subdirectories in the complete folder
+    for dirpath, dirnames, filenames in os.walk(complete_folder):
+        # Get the treatment name from the directory name using the treatment_mapping
+        for key, value in treatment_mapping.items():
+            if key in dirpath:
+                treatment = value
+                break
+        else:
+            continue  # No treatment found for this subfolder, skip
+
+        # Skip this subdirectory if we have already copied enough files for this treatment
+        if treatment_counter[treatment] >= num_files:
+            continue
+
+        # Get a list of .wav files in the complete subdirectory that are not in the source directory
+        new_files = [file for file in filenames if file.endswith('.wav') and file not in source_files]
+
+        # If there are new files, select a number of them randomly
+        if new_files:
+            selected_files = random.sample(new_files, min(num_files - treatment_counter[treatment], len(new_files)))
+
+            # Update the counter
+            treatment_counter[treatment] += len(selected_files)
+
+            # Create the corresponding treatment subdirectory in the 'test' directory and copy the selected files there
+            test_subdir = os.path.join(test_folder, treatment, os.path.basename(dirpath))
+            if not os.path.exists(test_subdir):
+                os.makedirs(test_subdir)
+            for file in selected_files:
+                shutil.copy2(os.path.join(dirpath, file), os.path.join(test_subdir, file))
+
+    print(f"Copying from {complete_folder} to {test_folder} completed.")
+
+
+copy_files_not_in_source(100, treatment_mapping)
+
+
+
+
