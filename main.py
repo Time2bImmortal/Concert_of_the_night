@@ -9,7 +9,7 @@ from tkinter import filedialog
 import tkinter as tk
 from tqdm import tqdm
 from sklearn.preprocessing import LabelEncoder
-
+from model_testing import ModelEvaluator
 class DataLoader:
     def __init__(self, folder_path, num_files_per_treatment=386):
         self.folder_path = folder_path
@@ -76,11 +76,11 @@ class ModelTrainer:
             keras.layers.Conv2D(32, (3, 3), activation='relu',
                                 input_shape=(self.X.shape[1], self.X.shape[2], self.X.shape[3])),
             keras.layers.MaxPooling2D((3, 3), strides=(2, 2), padding='same'),
-            keras.layers.Dropout(0.1),
+            keras.layers.Dropout(0.2),
 
             keras.layers.Conv2D(64, (3, 3), activation='relu'),
             keras.layers.MaxPooling2D((3, 3), strides=(2, 2), padding='same'),
-            keras.layers.Dropout(0.1),
+            keras.layers.Dropout(0.2),
 
             keras.layers.Flatten(),
             keras.layers.Dense(64, activation='relu'),
@@ -98,30 +98,35 @@ class ModelTrainer:
         accuracy = correct_preds / total_preds
         if accuracy >= 0.8:
             os.makedirs(save_dir, exist_ok=True)
-            model_file_path = os.path.join(save_dir, f'model_accuracy_{accuracy:.2f}.h5')
+            model_file_path = os.path.join(save_dir, f'Serious_test.h5')
             self.model.save(model_file_path)
             print(f'Model saved at {model_file_path}')
 
-    def train_model(self, batch_size=32, epochs=50):
+    def train_model(self, batch_size=32, epochs=128):
         # First split to separate out the test set
-        X_train_val, X_test, y_train_val, y_test = train_test_split(self.X, self.y, test_size=0.2)
+        X_train_val, X_test, y_train_val, y_test = train_test_split(self.X, self.y, test_size=0.15)
         # Second split to separate out the training and validation sets
-        X_train, X_val, y_train, y_val = train_test_split(X_train_val, y_train_val, test_size=0.25)
+        X_train, X_val, y_train, y_val = train_test_split(X_train_val, y_train_val, test_size=0.15)
 
         # Normalize only after splitting to prevent data leakage
-        X_train -= np.mean(X_train, axis=0)
-        X_train /= np.std(X_train, axis=0)
 
-        X_val -= np.mean(X_val, axis=0)
-        X_val /= np.std(X_val, axis=0)
+        mean = np.mean(X_train, axis=0)
+        std = np.std(X_train, axis=0)
 
-        X_test -= np.mean(X_test, axis=0)
-        X_test /= np.std(X_test, axis=0)
+        X_train -= mean
+        X_train /= std
+
+        X_val -= mean
+        X_val /= std
+
+        X_test -= mean
+        X_test /= std
 
         # Label encoding
         label_encoder = LabelEncoder()
         y_train = label_encoder.fit_transform(y_train)
         y_val = label_encoder.transform(y_val)
+        y_test = label_encoder.transform(y_test)
 
         history = self.model.fit(X_train, y_train, validation_data=(X_val, y_val), batch_size=batch_size, epochs=epochs)
 
@@ -142,3 +147,16 @@ if __name__ == "__main__":
     data_loader = DataLoader(folder_path)
     trainer = ModelTrainer(data_loader.X, data_loader.y)
     trainer.train_model()
+    test_folder = "G:/test_mfcc"
+    model_path = 'saved_models/Serious_test.h5'  # specify the correct model path
+    evaluator = ModelEvaluator(model_path, test_folder)
+
+    # Assuming DataLoader is a class you have defined to load data
+    # Load new data
+    data_loader = DataLoader(test_folder, 64)  # Please make sure DataLoader class is defined somewhere
+
+    # Evaluate
+    confusion_mat = evaluator.evaluate(data_loader.X, data_loader.y)
+    treatments_indices = {'2lux': 0, '5lux': 1, 'LD': 2, 'LL': 3}
+    # Plot confusion matrix
+    evaluator.plot_confusion_matrix(confusion_mat, treatments_indices, "Serious test results")

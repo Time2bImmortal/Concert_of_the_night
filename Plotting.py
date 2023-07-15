@@ -6,112 +6,125 @@ import matplotlib.pyplot as plt
 import tkinter as tk
 from tkinter import filedialog
 import pandas as pd
+import matplotlib.patches as mpatches
 FEATURES_TO_PLOT = {
-    'ae': (80000, 200000),
-    "rms": (600000, 800000),
+    'ae': (70000, 250000),
+    "rms": (500000, 750000),
     "zcr": (100000, 200000),
-    "bw": (600000, 800000),
-    "sc": (600000, 800000),
+    "bw": (500000, 800000),
+    "sc": (500000, 800000),
     "ber": (400000, 750000)
 }
 
-def plot_mean_feature_treatment(directory: str, data_dict: dict):
-    """
-    Plots the mean feature for each treatment in a given directory.
-    Only processes files within the provided memory size range.
 
-    Args:
-        directory (str): The directory where the function will look for the files.
-        data_dict (dict): The dictionary containing the features to be plotted
-                          along with their min and max sizes.
-    """
-
-    # Walk through the directory tree
+def plot_mean_feature_treatment(directory: str, data_dict: dict, per_folder: bool = False):
+    treatment_color = {
+        '2lux': 'blue',
+        '5lux': 'orange',
+        'LD': 'red',
+        'LL': 'green'
+    }
+    plots_directory = os.path.join(directory, 'Plots')
+    os.makedirs(plots_directory, exist_ok=True)
     for feature_name, (min_size, max_size) in data_dict.items():
-        # Initialize an empty dictionary to store the concatenated means
-        treatment_concatenated_means = {}
-
+        print(f"{feature_name} is being plotted")
         feature_directory = os.path.join(directory, feature_name)
-        for dirpath, dirs, files in os.walk(feature_directory):
-            print(f"\nProcessing directory: {dirpath}")
+        if per_folder:
+            # process_treatments(treatment_color, feature_directory, feature_name, min_size, max_size)
+            process_subfolders(treatment_color, feature_directory, feature_name, min_size, max_size)
+        else:
+            process_treatments(treatment_color, feature_directory, feature_name, min_size, max_size)
+        legend_patches = [mpatches.Patch(color=c, label=l) for l, c in treatment_color.items()]
+        plt.legend(handles=legend_patches)
+        if per_folder:
+            plt.savefig(f'{plots_directory}/{feature_name}_plot_per_folders.png')
+        else:
+            plt.savefig(f'{plots_directory}/{feature_name}_plot.png')
 
-            for file in files:
-                file_path = os.path.join(dirpath, file)
+        print(f"{feature_name} has been plotted")
 
-                # Check if file size is within the given range
-                file_size = os.path.getsize(file_path)
-                if file_size < min_size or file_size > max_size:
-                    continue
+        # Clear the current figure's content
+        plt.clf()
 
-                print(f"Processing file: {file}")
+def process_treatments(treatment_color, feature_directory, feature_name, min_size, max_size):
+    treatment_means_list = []
+    treatment_list = [t for t in os.listdir(feature_directory) if os.path.isdir(os.path.join(feature_directory, t))]
 
-                # Open the gzipped JSON file and load the data
-                with gzip.GzipFile(file_path, 'r') as fin:
-                    dict_data = json.loads(fin.read().decode('utf-8'))
+    for treatment in treatment_list:
+        treatment_directory = os.path.join(feature_directory, treatment)
 
-                # Check if the current treatment is already in the dictionary, if not initialize it
-                treatment = os.path.basename(dirpath)
-                if treatment not in treatment_concatenated_means:
-                    treatment_concatenated_means[treatment] = []
+        treatment_files = []
+        for root, dirs, files in os.walk(treatment_directory):
+            # Check if there are gzip files directly in the treatment directory
+            treatment_files.extend([
+                os.path.join(root, file)
+                for file in files
+                if file.endswith('.gz')
+            ])
 
-                # Concatenate the segments in the current file
-                file_segments = np.concatenate(dict_data[feature_name][:29])
+            # Check if there are subfolders containing gzip files
+            for subdir in dirs:
+                subfolder_path = os.path.join(root, subdir)
+                subfolder_files = [
+                    os.path.join(subfolder_path, file)
+                    for file in os.listdir(subfolder_path)
+                    if file.endswith('.gz')
+                ]
+                treatment_files.extend(subfolder_files)
 
-                # Append this array to the current treatment's list
-                treatment_concatenated_means[treatment].append(file_segments)
-                print(f"Shape of file_segments for {treatment}: {file_segments.shape}")
+        treatment_means = calculate_means_from_files(treatment_files, feature_name, min_size, max_size)
+        treatment_means_list.append((treatment, treatment_means))
+    for treatment, treatment_means in treatment_means_list:
+        plot_means(treatment_means, treatment_color[treatment], feature_name, alpha=1.0)
 
-                print(f"Number of files processed for {treatment}: {len(treatment_concatenated_means[treatment])}")
 
-        # Compute means for each treatment and plot them
-        for treatment, concatenated_segments_list in treatment_concatenated_means.items():
-            print(f"\nCalculating mean for {treatment}.")
-            # This is just before you calculate the mean
-            try:
-                # Filter out elements that do not have the expected shape
-                expected_shape = (29, 2584)
-                concatenated_segments_list = [segment for segment in concatenated_segments_list if
-                                              np.shape(segment) == expected_shape]
+def calculate_means_from_files(files, feature_name, min_size, max_size):
 
-                # Check the shape of the filtered concatenated_segments_list
-                print("concatenated_segments_list shape after filtering:", np.shape(concatenated_segments_list))
+    files_concatenated = []
+    for file in files:
+        if min_size < os.path.getsize(file) < max_size:
+            with gzip.GzipFile(file, 'r') as fin:
+                dict_data = json.loads(fin.read().decode('utf-8'))
 
-                # Compute the mean across the concatenated segments for the current treatment
-                mean_features = np.mean(concatenated_segments_list, axis=0)
-                print(f"Shape of mean_features for {treatment}: {mean_features.shape}")
-            except ValueError as e:
-                print(f"An error occurred while processing treatment {treatment}: {e}")
+            file_segments = np.concatenate(dict_data[feature_name][:29], axis=1)  # Concatenation on axis=1
+            if file_segments.shape == (1, 74936):  # Condition to consider arrays with shape (1, 74936)
+                files_concatenated.append(file_segments)
+    if not files_concatenated:
+        print("Warning: No valid means were calculated for the given files.")
+        return None
+    return np.mean(files_concatenated, axis=0)
+
+
+def process_subfolders(treatment_color, feature_directory, feature_name, min_size, max_size):
+    treatment_list = [t for t in os.listdir(feature_directory) if os.path.isdir(os.path.join(feature_directory, t))]
+    for treatment in treatment_list:
+        treatment_directory = os.path.join(feature_directory, treatment)
+        # Assuming that all subdirectories under the treatment are subfolders.
+        subfolder_mean = []
+        for subfolder in os.listdir(treatment_directory):
+            subfolder_path = os.path.join(treatment_directory, subfolder)
+            if not os.path.isdir(subfolder_path):
                 continue
 
-            # # Compute the mean across the concatenated segments for the current treatment
-            # mean_features = np.mean(concatenated_segments_list, axis=0)
-            # mean_features = mean_features.flatten()
-            #
-            # print(f"Shape of mean_features for {treatment}: {mean_features.shape}")
-            # mean_features_series = pd.Series(mean_features)
-            mean_features_series = pd.Series(mean_features.flatten())
-            smooth_mean = mean_features_series.rolling(window=100).mean()
+            # Get all files from the subfolder.
+            subfolder_files = [os.path.join(subfolder_path, file) for file in os.listdir(subfolder_path) if
+                               os.path.isfile(os.path.join(subfolder_path, file))]
 
-            # Apply the rolling mean with a window size of 10
-            # smooth_mean = mean_features_series.rolling(window=100).mean()
+            subfolder_mean.append(calculate_means_from_files(subfolder_files, feature_name, min_size, max_size))
+        for mean in subfolder_mean:
+            plot_means(mean, treatment_color[treatment], feature_name, alpha=1.0, linewidth=0.4)
 
-            # The corresponding sample_index should also be adjusted to match the length of smooth_mean
-            sample_index = np.linspace(0, len(smooth_mean) - 1, len(smooth_mean))
 
-            # Plot the mean amplitude envelope
-            plt.plot(sample_index, smooth_mean, label=treatment)
-
-        # Configure the plot
-        plt.xlabel('Sample_index')
-        plt.ylabel(f'Mean {feature_name}')
-        plt.title(f'Mean {feature_name} per Treatment')
-        plt.legend()
-        plot_dir = os.path.join(folder_path, 'plots')
-        os.makedirs(plot_dir, exist_ok=True)
-        plt.savefig(os.path.join(plot_dir, f"{feature_name}_plot.png"))
-
-        # Display the plot
-        plt.show()
+def plot_means(mean_values, color, feature_name, alpha=1.0, linewidth=2.0):
+    if mean_values is None:
+        return
+    mean_features_series = pd.Series(mean_values.flatten())
+    smooth_mean = mean_features_series.rolling(window=250).mean()
+    sample_index = np.linspace(0, len(smooth_mean) - 1, len(smooth_mean))
+    plt.plot(sample_index, smooth_mean, color=color, alpha=alpha, linewidth=linewidth)
+    plt.xlabel('Sample_index')
+    plt.ylabel(f'Mean {feature_name}')
+    plt.title(f'Mean {feature_name} per Treatment')
 
 
 
@@ -120,4 +133,4 @@ if __name__ == "__main__":
     root = tk.Tk()
     root.withdraw()
     folder_path = filedialog.askdirectory()
-    plot_mean_feature_treatment(folder_path, FEATURES_TO_PLOT)
+    plot_mean_feature_treatment(folder_path, FEATURES_TO_PLOT, per_folder=True)

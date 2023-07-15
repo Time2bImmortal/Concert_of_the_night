@@ -151,6 +151,9 @@ class AudioProcessor:
         self.treatments = os.listdir(src_directory)
         self.treatments_dir = []
         self.features_dir = None
+        self.per_folder = True
+        self.max_files_per_folder = 20
+        self.num_folders = 10
 
 
 
@@ -226,10 +229,33 @@ class AudioProcessor:
         The processing involves extracting features from the audio file and saving the results in the
         corresponding treatment directory in the feature's directory.
         """
-        wav_files = glob.glob(os.path.join(treatment_dir_in_src, '**/*.wav'), recursive=True)
-        wav_files = wav_files[:file_count]  # Only take the first `file_count` files
-        for counter, file_path in enumerate(wav_files, start=1):
-            self.process_file(file_path, counter, treatment_dir_in_features)
+
+        if self.per_folder:
+            subfolders_processed = 0
+            for root, dirs, files in os.walk(treatment_dir_in_src):
+                if subfolders_processed >= self.num_folders:
+                    break
+
+                wav_files = [file for file in files if file.endswith('.wav')]
+                if len(wav_files) < self.max_files_per_folder:
+                    continue
+
+                wav_files = wav_files[:self.max_files_per_folder]
+                for counter, file_name in enumerate(wav_files, start=1):
+                    file_path = os.path.join(root, file_name)
+                    # Create the new subfolder path in the features directory
+                    subfolder_path = os.path.relpath(root, treatment_dir_in_src)
+                    new_subfolder_path = os.path.join(treatment_dir_in_features, subfolder_path)
+                    os.makedirs(new_subfolder_path, exist_ok=True)
+                    self.process_file(file_path, counter, new_subfolder_path)
+
+                subfolders_processed += 1
+        else:
+            wav_files = glob.glob(os.path.join(treatment_dir_in_src, '**/*.wav'), recursive=True)
+            wav_files = wav_files[:file_count]  # Only take the first `file_count` files
+            for counter, file_path in enumerate(wav_files, start=1):
+                self.process_file(file_path, counter, treatment_dir_in_features)
+
 
     def process_file(self, file_path, counter, treatment_dir_features):
         """
@@ -561,6 +587,6 @@ if __name__ == "__main__":
     root.withdraw()
     src_directory = filedialog.askdirectory(title="Select Source Directory")
     root.destroy()
-
-    processor = AudioProcessor('mfcc', src_directory)
-    processor.run()
+    for feature in FEATURE_ABBREVIATIONS.values():
+        processor = AudioProcessor(feature, src_directory)
+        processor.run()

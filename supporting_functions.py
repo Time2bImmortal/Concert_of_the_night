@@ -311,7 +311,7 @@ def copy_files_not_in_source(num_files, treatment_mapping):
     print(f"Copying from {complete_folder} to {test_folder} completed.")
 
 
-copy_files_not_in_source(100, treatment_mapping)
+# copy_files_not_in_source(100, treatment_mapping)
 
 
 
