@@ -125,7 +125,7 @@ class AudioExplorer:
 
 class AudioProcessor:
     def __init__(self, feature: str, src_directory,
-                 n_mfcc=13, frame_size=2048, hop_length=1024, num_segments=30):
+                 n_mfcc=13, frame_size=2048, hop_length=1024, num_segments=1):
         """
         Initialize the AudioProcessor class.
 
@@ -151,48 +151,24 @@ class AudioProcessor:
         self.treatments = os.listdir(src_directory)
         self.treatments_dir = []
         self.features_dir = None
-        self.per_folder = True
+        self.per_folder = False
         self.max_files_per_folder = 20
         self.num_folders = 10
 
-
-
     def create_feature_directory(self):
-        """
-        Create the directory for storing the extracted features.
 
-        Returns:
-            str: The path of the feature directory.
-
-        This method creates a directory for the extracted features.
-        The directory is created under the parent directory of the source directory.
-        """
         feature_directory = os.path.join(os.path.dirname(self.src_directory), self.feature)
         os.makedirs(feature_directory, exist_ok=True)
         return feature_directory
 
     def create_treatment_directories(self):
-        """
-        Create the treatment directories in the feature's directory.
-
-        This method creates treatment directories inside the feature's directory.
-        It iterates through the treatments and creates a directory for each treatment.
-        The treatment directories are added to the `treatments_dir` list.
-        """
         for treatment in self.treatments:
             treatment_dir = os.path.join(self.features_dir, treatment)
             self.treatments_dir.append(treatment_dir)
             os.makedirs(treatment_dir, exist_ok=True)
 
     def run(self):
-        """
-        Run the audio processing pipeline.
 
-        This method executes the audio processing pipeline.
-        It creates the feature directory and treatment directories.
-        Then, it starts multiprocessing to process each treatment directory concurrently.
-        Finally, it waits for all processes to finish execution.
-        """
         self.features_dir = self.create_feature_directory()
         self.create_treatment_directories()
 
@@ -216,19 +192,6 @@ class AudioProcessor:
             process.join()
 
     def process_treatment(self, treatment_dir_in_src: str, treatment_dir_in_features: str, file_count: int) -> None:
-        """
-        Process the audio files in a treatment directory.
-
-        Args:
-            treatment_dir_in_src (str): The path of the treatment directory in the source directory.
-            treatment_dir_in_features (str): The path of the treatment directory in the features directory.
-            file_count (int): The number of files to process in each directory.
-
-        This method processes the audio files in a treatment directory and its subdirectories.
-        It iterates through the files, checks if they are .wav files, and processes each valid file.
-        The processing involves extracting features from the audio file and saving the results in the
-        corresponding treatment directory in the feature's directory.
-        """
 
         if self.per_folder:
             subfolders_processed = 0
@@ -258,18 +221,7 @@ class AudioProcessor:
 
 
     def process_file(self, file_path, counter, treatment_dir_features):
-        """
-        Process an audio file.
 
-        Args:
-            file_path (str): The path of the audio file.
-            counter (int): The counter value for the file.
-            treatment_dir_features (str): The path of the treatment directory in the features directory.
-
-        This method processes an audio file by extracting features from it.
-        The extracted features are saved in a .gz file with a specific filename pattern.
-        Additionally, metadata and details of the feature extraction are written to a metadata file.
-        """
         filename, subfolder, treatment, dict_data = self.get_directory_info(file_path)
         print(filename, "is being processed in", treatment)
         gz_file_return = self.create_gz_file(filename, counter, subfolder, treatment_dir_features)
@@ -293,18 +245,7 @@ class AudioProcessor:
         self.write_metadata(sr, signal, feature_vectors)
 
     def write_metadata(self, sr, signal, feature_vectors):
-        """
-        Write metadata to a metadata file.
 
-        Args:
-            sr (int): The sampling rate of the audio signal.
-            signal (np.ndarray): The audio signal.
-            feature_vectors (np.ndarray): The extracted feature vectors.
-
-        This method writes metadata to a metadata file.
-        The metadata includes details about the feature extraction process.
-        The metadata file is created if it doesn't exist and appended with the extraction details.
-        """
         metadata_file_path = os.path.join(self.features_dir, f'{self.feature}_metadata.txt')
         if not os.path.exists(metadata_file_path):
             details = self.get_details(sr, signal, feature_vectors)
@@ -314,21 +255,7 @@ class AudioProcessor:
                     f.write(f"{key}: {value}\n")
 
     def get_details(self, sr, signal, feature_vectors):
-        """
-        Get details about the feature extraction process.
 
-        Args:
-            sr (int): The sampling rate of the audio signal.
-            signal (np.ndarray): The audio signal.
-            feature_vectors (np.ndarray): The extracted feature vectors.
-
-        Returns:
-            dict: A dictionary containing details about the feature extraction process.
-
-        This method retrieves details about the feature extraction process.
-        The details include the sampling rate, number of segments, duration, hop length,
-        frame size, and shape of the extracted feature vectors.
-        """
         treatment_indices = {treatment: i for i, treatment in enumerate(self.treatments)}
 
         return {
@@ -342,19 +269,7 @@ class AudioProcessor:
         }
 
     def update_dict_data(self, dict_data, feature_vectors, treatment, s):
-        """
-        Update the dictionary data with feature vectors, labels, and segment numbers.
 
-        Args:
-            dict_data (dict): The dictionary containing the data.
-            feature_vectors (np.ndarray): The feature vectors to append.
-            treatment (str): The treatment label.
-            s (int): The segment number.
-
-        This method updates the dictionary data with feature vectors, labels, and segment numbers.
-        It appends the feature vectors to the corresponding feature key in the dictionary.
-        It appends the treatment label and segment number to their respective keys.
-        """
         if treatment in self.treatments:
             dict_data[self.feature].append(feature_vectors.tolist())
             dict_data["labels"].append(self.treatments.index(treatment))
@@ -363,23 +278,7 @@ class AudioProcessor:
             print(f"Treatment {treatment} not found in self.treatments")
 
     def check_feature_vectors(self, feature_vectors, expected_shape, filename, s):
-        """
-        Check the shape of the feature vectors.
 
-        Args:
-            feature_vectors (np.ndarray): The feature vectors to check.
-            expected_shape (tuple): The expected shape of the feature vectors.
-            filename (str): The filename of the processed audio file.
-            s (int): The segment number.
-
-        Returns:
-            bool: True if the feature vectors have the expected shape, False otherwise.
-
-        This method checks if the shape of the feature vectors matches the expected shape.
-        If the feature vectors are not empty and have the expected shape, True is returned.
-        Otherwise, the filename and segment number are written to a file for further investigation,
-        and False is returned.
-        """
         if len(feature_vectors) > 0:
             if feature_vectors.shape != expected_shape:
                 with open('problem_files.txt', 'a') as f:
@@ -390,72 +289,25 @@ class AudioProcessor:
         return False
 
     def get_segment_signal(self, filename, s, signal, num_samples_per_segment):
-        """
-        Get the segment signal from the audio file.
-
-        Args:
-            filename (str): The filename of the audio file.
-            s (int): The segment number.
-            signal (np.ndarray): The audio signal.
-            num_samples_per_segment (int): The number of samples per segment.
-
-        Returns:
-            np.ndarray: The segment signal.
-
-        This method extracts the segment signal from the audio file based on the segment number.
-        It calculates the start and end samples for the segment based on the number of samples per segment.
-        If the segment signal is empty, a message is printed, and None is returned.
-        """
         start_sample = int(num_samples_per_segment * s)
         end_sample = int(start_sample + num_samples_per_segment)
         segment_signal = signal[start_sample:end_sample]
-
         if len(segment_signal) == 0:
             print(f"Empty segment signal at segment {s} of file {filename}. Skipping this segment.")
             return None
         return segment_signal
 
     def create_gz_file(self, filename, counter, subfolder, treatment_dir_features):
-        """
-        Create a gzip file for saving the feature data.
 
-        Args:
-            filename (str): The filename of the audio file.
-            counter (int): The counter value for the file.
-            subfolder (str): The subfolder name.
-            treatment_dir_features (str): The path of the treatment directory in the features directory.
-
-        Returns:
-            tuple: A tuple containing the gzip filename and path.
-
-        This method creates a gzip file for saving the feature data.
-        The gzip filename follows a specific pattern based on the counter, subfolder, and feature name.
-        The gzip path is created using the treatment directory and the gzip filename.
-        If the gzip file already exists, a message is printed, and None is returned.
-        """
         gz_json_file = filename.replace(filename, f"{str(counter).zfill(5)}_{subfolder}_{self.feature}.gz")
         gz_json_path = os.path.join(treatment_dir_features, gz_json_file)
+
         if os.path.isfile(gz_json_path):
             print(f"'{gz_json_file}' file already exists in {treatment_dir_features}. Skipping this file.")
             return None
         return gz_json_file, gz_json_path
 
     def get_directory_info(self, file_path):
-        """
-        Get directory information from the file path.
-
-        Args:
-            file_path (str): The path of the audio file.
-
-        Returns:
-            tuple: A tuple containing the filename, subfolder, treatment, and dictionary data.
-
-        This method extracts directory information from the file path.
-        It checks if the file path is valid and a .wav file.
-        It extracts the subfolder and treatment from the file path.
-        The dictionary data is initialized with the path, subfolder name, filename, and empty lists for features,
-        labels, and segment numbers.
-        """
         if not os.path.isfile(file_path):
             print(f"Error: {file_path} is not a valid file.")
             return None, None, None, None
@@ -480,47 +332,28 @@ class AudioProcessor:
         return filename, subfolder, treatment, dict_data
 
     def get_expected_shape(self, signal, sr):
-        """
-        Get the expected shape of the feature vectors.
-
-        Args:
-            signal (np.ndarray): The audio signal.
-            sr (int): The sampling rate of the audio signal.
-
-        Returns:
-            tuple: A tuple containing the number of samples per segment and the expected shape.
-
-        This method calculates the number of samples per segment based on the signal duration and number of segments.
-        It then determines the expected shape of the feature vectors based on the feature type.
-        """
         duration = librosa.get_duration(y=signal, sr=sr)
         samples_per_track = sr * duration
         num_samples_per_segment = samples_per_track / self.num_segments
-
         if self.feature in ["mfcc", "spectrogram", "mel_spectrogram"]:
             expected_shape = (self.n_mfcc, math.ceil(num_samples_per_segment / self.hop_length))
+        elif self.feature in ["mfcc_double_derivated"]:
+            expected_shape = (39, math.ceil(num_samples_per_segment/ self.hop_length))
         elif self.feature in ["ae", "rms", "zcr", "ber", 'sc', 'bw']:
             expected_shape = (1, math.ceil(num_samples_per_segment / self.hop_length))
         else:
             raise ValueError(f"Unsupported feature: {self.feature}")
-
         return num_samples_per_segment, expected_shape
 
     def extract_feature(self, signal, sr):
-        """
-        Extract the specified feature from the audio signal.
 
-        Args:
-            signal (np.ndarray): The audio signal.
-            sr (int): The sampling rate of the audio signal.
-
-        Returns:
-            np.ndarray: The extracted feature vectors.
-
-        This method extracts the specified feature from the audio signal.
-        It handles different feature extraction methods based on the feature type.
-        The resulting feature vectors are returned.
-        """
+        if self.feature == "mfcc_double_derivated":
+            mfcc = librosa.feature.mfcc(y=signal, n_fft=self.frame_size, n_mfcc=self.n_mfcc, hop_length=self.hop_length,
+                                        sr=sr)
+            delta = librosa.feature.delta(mfcc)
+            delta2 = librosa.feature.delta(mfcc, order=2)
+            combined = np.concatenate((mfcc, delta, delta2), axis=0)
+            return combined
         if self.feature == "mfcc":
             return librosa.feature.mfcc(y=signal, n_fft=self.frame_size, n_mfcc=self.n_mfcc, hop_length=self.hop_length,
                                         sr=sr)
@@ -565,16 +398,6 @@ class AudioProcessor:
             raise ValueError(f"Unsupported feature: {self.feature}")
 
     def write_gz_json(self, json_obj, filename):
-        """
-        Write the dictionary as a gzipped JSON file.
-
-        Args:
-            json_obj (dict): The dictionary to write as a JSON file.
-            filename (str): The filename of the gzipped JSON file.
-
-        This method converts the dictionary to a JSON string, compresses it using gzip,
-        and writes it to a gzipped JSON file.
-        """
         json_str = json.dumps(json_obj) + "\n"
         json_bytes = json_str.encode('utf-8')
 
@@ -582,11 +405,18 @@ class AudioProcessor:
             fout.write(json_bytes)
 
 
+# if __name__ == "__main__":
+#     root = tk.Tk()
+#     root.withdraw()
+#     src_directory = filedialog.askdirectory(title="Select Source Directory")
+#     root.destroy()
+    # for feature in FEATURE_ABBREVIATIONS.values():
+    #     processor = AudioProcessor(feature, src_directory)
+    #     processor.run()
+# src_directory =
+# processor = AudioProcessor('mfcc', src_directory)
+# processor.run()
 if __name__ == "__main__":
-    root = tk.Tk()
-    root.withdraw()
-    src_directory = filedialog.askdirectory(title="Select Source Directory")
-    root.destroy()
-    for feature in FEATURE_ABBREVIATIONS.values():
-        processor = AudioProcessor(feature, src_directory)
-        processor.run()
+    src_directory = "G:\Stridulation syllable patterns"
+    processor = AudioProcessor('mfcc_double_derivated', src_directory)
+    processor.run()
