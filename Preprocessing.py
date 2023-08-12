@@ -417,6 +417,6 @@ class AudioProcessor:
 # processor = AudioProcessor('mfcc', src_directory)
 # processor.run()
 if __name__ == "__main__":
-    src_directory = "G:\Stridulation syllable patterns"
-    processor = AudioProcessor('mfcc_double_derivated', src_directory)
+    src_directory = r"G:\test_unknown_audio"
+    processor = AudioProcessor('mfcc', src_directory)
     processor.run()

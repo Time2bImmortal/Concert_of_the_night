@@ -76,22 +76,22 @@ class ModelTrainer:
                                 input_shape=(self.X.shape[1], self.X.shape[2], self.X.shape[3])),
             keras.layers.MaxPooling2D((3, 3), strides=(2, 2), padding='same'),
             keras.layers.BatchNormalization(),
-            keras.layers.Dropout(0.3),
+            keras.layers.Dropout(0.2),
 
             keras.layers.Conv2D(64, (2, 2), activation='relu'),
             keras.layers.MaxPooling2D((3, 3), strides=(2, 2), padding='same'),
             keras.layers.BatchNormalization(),
-            keras.layers.Dropout(0.3),
+            keras.layers.Dropout(0.2),
 
             keras.layers.Conv2D(128, (2, 2), activation='relu'),
             keras.layers.MaxPooling2D((3, 3), strides=(2, 2), padding='same'),
             keras.layers.BatchNormalization(),
-            keras.layers.Dropout(0.3),
+            keras.layers.Dropout(0.2),
 
             keras.layers.Flatten(),
             keras.layers.Dense(64, activation='relu'),
             keras.layers.BatchNormalization(),
-            keras.layers.Dropout(0.5),
+            keras.layers.Dropout(0.2),
 
             keras.layers.Dense(4, activation='softmax')  # Change 10 to 4 for 4 classes
         ])
@@ -107,16 +107,13 @@ class ModelTrainer:
         accuracy = correct_preds / total_preds
         if accuracy >= 0.8:
             os.makedirs(save_dir, exist_ok=True)
-            model_file_path = os.path.join(save_dir, f'30vote1.h5')
+            model_file_path = os.path.join(save_dir, f'shape77520.h5')
             self.model.save(model_file_path)
             print(f'Model saved at {model_file_path}')
 
-    def train_model(self, batch_size=16, epochs=100):
+    def train_model(self, batch_size=8, epochs=64):
 
-
-            # First split to separate out the test set
         X_train_val, X_test, y_train_val, y_test = train_test_split(self.X, self.y, test_size=0.15)
-            # Second split to separate out the training and validation sets
         X_train, X_val, y_train, y_val = train_test_split(X_train_val, y_train_val, test_size=0.15)
 
         mean = np.mean(X_train, axis=0)
@@ -133,7 +130,6 @@ class ModelTrainer:
         X_test -= mean
         X_test /= std
 
-            # Label encoding
         label_encoder = LabelEncoder()
         y_train = label_encoder.fit_transform(y_train)
         y_val = label_encoder.transform(y_val)
@@ -142,26 +138,25 @@ class ModelTrainer:
         history = self.model.fit(X_train, y_train, validation_data=(X_val, y_val), batch_size=batch_size,
                                      epochs=epochs)
 
-        # Replace previous test prediction code with predict_file_classes method
-        self.predict_file_classes(X_test, y_test)
 
-    def predict_file_classes(self, X, y):
+        self.predict_file_classes(X_test, y_test, segments_per_file=1)
+
+    def predict_file_classes(self, X, y, segments_per_file=30):
         # Predict classes for each segment
         y_pred = self.model.predict(X)
         y_pred_classes = np.argmax(y_pred, axis=1)
 
-        file_preds = []  # define as a list
-        for i in range(0, len(y_pred_classes), 30):  # assuming 30 segments per file
-            segment_preds = y_pred_classes[i:i + 30]
+        file_preds = []
+        for i in range(0, len(y_pred_classes), segments_per_file):
+            segment_preds = y_pred_classes[i:i + segments_per_file]
             # Majority voting
             file_pred = np.bincount(segment_preds).argmax()
-            file_preds.append(file_pred)  # append to list
+            file_preds.append(file_pred)
 
         file_preds = np.array(file_preds)
 
         file_labels = []
-        for i in range(0, len(y), 30):
-                # The true label is the same for all segments of a file
+        for i in range(0, len(y), segments_per_file):
             file_label = y[i]
             file_labels.append(file_label)
         file_labels = np.array(file_labels)
@@ -181,19 +176,17 @@ if __name__ == "__main__":
     data_loader = DataLoader(folder_path)
     trainer = ModelTrainer(data_loader.X, data_loader.y)
     trainer.train_model()
-    test_folder = "G:/test_mfcc"
-    model_path = 'saved_models/30vote1.h5'  # specify the correct model path
+    test_folder = "G:/one_mfcc"
+    model_path = 'saved_models/shape77520.h5'  # specify the correct model path
     evaluator = ModelEvaluator(model_path, test_folder)
-    # Assuming DataLoader is a class you have defined to load data
-    # Load new data
     data_loader = DataLoader(test_folder, 64)  # Please make sure DataLoader class is defined somewhere
 
     # Evaluate
     confusion_mat = evaluator.evaluate(data_loader.X, data_loader.y)
     treatments_indices = {'2lux': 0, '5lux': 1, 'LD': 2, 'LL': 3}
     # Plot confusion matrix
-    evaluator.plot_confusion_matrix(confusion_mat, treatments_indices, "Model_30_votes_for_one")
+    evaluator.plot_confusion_matrix(confusion_mat, treatments_indices, "one_mfcc")
 
-    src_directory = "G:\Stridulation syllable patterns"
-    processor = Preprocessing.AudioProcessor('mfcc', src_directory)
-    processor.run()
+    # src_directory = "G:\Stridulation syllable patterns"
+    # processor = Preprocessing.AudioProcessor('mfcc', src_directory)
+    # processor.run()
