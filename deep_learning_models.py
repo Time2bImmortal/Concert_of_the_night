@@ -8,7 +8,6 @@ from sklearn.preprocessing import LabelEncoder
 from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 import logging
-import keras
 from collections import deque
 logging.basicConfig(level=logging.INFO)
 
