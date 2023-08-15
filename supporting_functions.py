@@ -10,10 +10,6 @@ import os
 import shutil
 import random
 
-treatment_mapping = {
-        "ALAN2": "2lux", "ALAN5": "5lux", "Gb12": "LD", "Gb24": "LL",
-    }
-
 def extract_subfolder_from_filename(filename):
     parts = filename.split('_')
     if len(parts) > 1:
@@ -188,13 +184,7 @@ def save_and_compare_audio(filename):
         print("The two files do not contain identical data.")
 
 def copy_missing_wav_files(treatment_mapping):
-    """
-    Copies .wav files from a source subfolder to the corresponding subfolder
-    under the corresponding treatment folder in the destination directory, based on the name of the source subfolder.
-    If the subfolder under the treatment folder does not exist, it is created.
-    """
 
-    # Create root Tk window and hide it
     root = Tk()
     root.withdraw()
 
@@ -310,8 +300,6 @@ def copy_files_not_in_source(num_files, treatment_mapping):
 
     print(f"Copying from {complete_folder} to {test_folder} completed.")
 
-
-copy_files_not_in_source(100, treatment_mapping)
 
 
 
