@@ -295,16 +295,16 @@ if __name__ == '__main__':
     BATCH_SIZE = 16
     NUM_FILES = 300
     folder_path = filedialog.askdirectory()
-    print(f"The path: {folder_path} is going to be treated now")
+    print(f"The path: {folder_path} is going to be treated now.")
 
     if torch.cuda.is_available():
         device = "cuda"
     else:
         device = 'cpu'
-    print(f"Using: {device} device")
+    print(f"Using: {device} as processing device.")
 
     # Load data
-    print("Splitting files..")
+    print("Splitting files...")
     data_loader = CustomDataLoader(folder_path, num_files_per_treatment=NUM_FILES)
     data_loader.split_data_files()
     print("Files have been split successfully!")
@@ -316,7 +316,7 @@ if __name__ == '__main__':
     train_dataset = CustomDataset(data_loader.train_files)
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=12)
     train_mean, train_std = compute_mean_std(train_loader)
-    print('Normalisation is ready')
+    print('Normalisation is ready!')
 
     train_dataset = CustomDataset(data_loader.train_files, labels=label_encoder, mean=train_mean, std=train_std)
     val_dataset = CustomDataset(data_loader.val_files, labels=label_encoder, mean=train_mean, std=train_std)
@@ -326,14 +326,14 @@ if __name__ == '__main__':
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=12)
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
-    print('Data is loaded and ready to be processed')
+    print('Data has been loaded and ready to be processed.')
 
     model = MFCC_CNN()
     model.to(device)
     loss_fn = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 
-    print('Model is ready')
+    print('Model is ready.')
 
     print('Training is starting...')
     trainer = Trainer(model, train_loader, val_loader, test_loader, optimizer, loss_fn, device)
