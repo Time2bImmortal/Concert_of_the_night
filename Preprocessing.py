@@ -3,11 +3,9 @@ import librosa
 import matplotlib.pyplot as plt
 import soundfile as sf
 import numpy as np
-import json
 import tkinter as tk
 from tkinter import filedialog
 import math
-import gzip
 import collections
 import shutil
 from typing import List
@@ -15,6 +13,7 @@ import multiprocessing
 import glob
 from typing import Tuple
 import supporting_functions
+import h5py
 """
 Here, we preprocess audio files that are already organized in a specific folder structure: 
 Folder > Treatments > Subfolders > Audio files.
@@ -88,7 +87,7 @@ class AudioProcessor:
 
         self.feature = feature
         self.src_directory = src_directory
-        self.file_extension = ".gz"
+        self.file_extension = ".h5"
         self.n_mfcc = n_mfcc
         self.frame_size = frame_size
         self.hop_length = hop_length
@@ -145,11 +144,11 @@ class AudioProcessor:
 
         filename, subfolder, treatment, dict_data = self.get_directory_info(file_path)
         print(filename, "is being processed in", treatment)
-        gz_file_return = self.create_gz_file(filename, counter, subfolder, treatment_dir_features)
-        if gz_file_return is None:
+        h5_file_return = self.create_h5_file(filename, counter, subfolder, treatment_dir_features)
+        if h5_file_return is None:
             print(f"Skipping file {file_path} as it already exists.")
             return
-        gz_json_file, gz_json_path = gz_file_return
+        h5_file, h5_path = h5_file_return
         signal, sr = librosa.load(file_path, sr=44100)
         num_samples_per_segment, expected_shape = self.get_expected_shape(signal, sr)
 
@@ -162,7 +161,7 @@ class AudioProcessor:
                 if self.check_feature_vectors(feature_vectors, expected_shape, filename, s):
                     self.update_dict_data(dict_data, feature_vectors, treatment, s)
 
-        self.write_gz_json(dict_data, gz_json_path)
+        self.write_h5(dict_data, h5_path)
         self.write_metadata(sr, signal, feature_vectors)
 
     def write_metadata(self, sr, signal, feature_vectors):
@@ -220,14 +219,14 @@ class AudioProcessor:
             return None
         return segment_signal
 
-    def create_gz_file(self, filename, counter, subfolder, treatment_dir_features):
+    def create_h5_file(self, filename, counter, subfolder, treatment_dir_features):
 
-        gz_json_file = filename.replace(filename, f"{str(counter).zfill(5)}_{subfolder}_{self.feature}.gz")
-        gz_json_path = os.path.join(treatment_dir_features, gz_json_file)
-        if os.path.isfile(gz_json_path):
-            print(f"'{gz_json_file}' file already exists in {treatment_dir_features}. Skipping this file.")
+        h5_file = filename.replace(filename, f"{str(counter).zfill(5)}_{subfolder}_{self.feature}.h5")
+        h5_path = os.path.join(treatment_dir_features, h5_file)
+        if os.path.isfile(h5_path):
+            print(f"'{h5_file}' file already exists in {treatment_dir_features}. Skipping this file.")
             return None
-        return gz_json_file, gz_json_path
+        return h5_file, h5_path
 
     def get_directory_info(self, file_path):
 
@@ -274,6 +273,13 @@ class AudioProcessor:
         if self.feature == "mfcc":
             return librosa.feature.mfcc(y=signal, n_fft=self.frame_size, n_mfcc=self.n_mfcc, hop_length=self.hop_length,
                                         sr=sr)
+        elif self.feature == "mfccandderived":
+            mfccs = librosa.feature.mfcc(y=signal, n_fft=self.frame_size, n_mfcc=self.n_mfcc,
+                                         hop_length=self.hop_length, sr=sr)
+
+            mfcc_delta = librosa.feature.delta(mfccs)
+            combined = np.vstack([mfccs, mfcc_delta])
+            return combined
         elif self.feature == "spectrogram":
             S_complex = librosa.stft(signal, hop_length=self.hop_length, n_fft=self.frame_size)
             spectrogram = np.abs(S_complex)
@@ -314,11 +320,9 @@ class AudioProcessor:
         else:
             raise ValueError(f"Unsupported feature: {self.feature}")
 
-    def write_gz_json(self, json_obj, filename):
-
-        json_str = json.dumps(json_obj) + "\n"
-        json_bytes = json_str.encode('utf-8')
-
-        with gzip.GzipFile(filename, 'w') as fout:
-            fout.write(json_bytes)
+    def write_h5(self, data, filename):
+        with h5py.File(filename, 'w') as hf:
+            # Assuming data is a dictionary where keys are dataset names and values are numpy arrays
+            for key, value in data.items():
+                hf.create_dataset(key, data=np.array(value))
 
