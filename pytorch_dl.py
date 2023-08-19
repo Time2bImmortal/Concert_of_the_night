@@ -1,12 +1,8 @@
 import os
-import gzip
-import json
-import numpy as np
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset, DataLoader
 import torch
 import torch.nn as nn
-import tkinter
 from tkinter import filedialog
 import random
 import torch.nn.functional as F
@@ -14,6 +10,10 @@ from sklearn.preprocessing import LabelEncoder
 import gc
 import time
 import h5py
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.utils.tensorboard import SummaryWriter
+
+
 def compute_mean_std(loader):
     print("compute_mean_std function called...")
 
@@ -107,23 +107,38 @@ class CustomDataLoader:
                 treatment_files[treatment] = [os.path.join(treatment_path, f) for f in valid_files[:self.num_files_per_treatment]]
         return treatment_files
 
-    def split_data_files(self):
+    def split_data_files(self, test=False):
         treatment_files = self._get_filtered_files()
-
         for files in treatment_files.values():
             random.shuffle(files)  # Shuffle the files before splitting
-            train, test = train_test_split(files, test_size=self.test_size)
-            self.train_files.extend(train)
-            self.test_files.extend(test)
+            if test:
+                self.test_files.extend(files)
+            else:
+                train, test = train_test_split(files, test_size=self.test_size)
+                self.train_files.extend(train)
+                self.test_files.extend(test)
 
         # Now, shuffle the train files again (this is optional but ensures randomness after accumulating all train files)
-        random.shuffle(self.train_files)
-        random.shuffle(self.test_files)
-
-        # Splitting the train set further to obtain a validation set, for instance, 80% train and 20% validation
-        self.train_files, self.val_files = train_test_split(self.train_files, test_size=0.2)
+                random.shuffle(self.train_files)
+                self.train_files, self.val_files = train_test_split(self.train_files, test_size=0.2)
+            random.shuffle(self.test_files)
 
 
+class SelfAttention(nn.Module):
+    def __init__(self, input_dim, attention_dim=128):
+        super(SelfAttention, self).__init__()
+        self.query = nn.Linear(input_dim, attention_dim)
+        self.key = nn.Linear(input_dim, attention_dim)
+        self.value = nn.Linear(input_dim, attention_dim)
+
+    def forward(self, x):
+        q = self.query(x)
+        k = self.key(x)
+        v = self.value(x)
+
+        attention_weights = F.softmax(q @ k.transpose(-2, -1), dim=-1)
+        attended = attention_weights @ v
+        return attended
 
 class MFCC_CNN(nn.Module):
     def __init__(self):
@@ -142,8 +157,10 @@ class MFCC_CNN(nn.Module):
 
         # Compute the output size after convolution and pooling layers to use in the FC layer
         self.fc_input_dim = self._get_conv_output((1, 13, 2584))
-
+        # self.attention = SelfAttention(self.fc_input_dim, attention_dim=128)
         # Fully connected layers
+        # self.fc1 = nn.Linear(128, 512)
+        # self.fc2 = nn.Linear(512, 4)
         self.fc1 = nn.Linear(self.fc_input_dim, 512)
         self.fc2 = nn.Linear(512, 4)
 
@@ -159,7 +176,7 @@ class MFCC_CNN(nn.Module):
 
         # Flatten the matrix
         x = x.view(x.size(0), -1)
-
+        # x = self.attention(x)
         # Pass data through fully connected layers
         x = F.relu(self.fc1(x))
         x = self.dropout(x)
@@ -243,16 +260,23 @@ class Trainer:
         for epoch in range(n_epochs):
             train_loss, train_accuracy = self.train_epoch()
             val_accuracy = self.evaluate(self.val_loader)
-            print(f"Epoch {epoch + 1}/{n_epochs}\t Training loss: {train_loss:.4f} | Training accuracy: {train_accuracy:.2f}% | Validation accuracy: {val_accuracy:.2f}%")
+            print(f"Epoch {epoch + 1}/{n_epochs}\t Training loss: {train_loss:.4f} | Training accuracy: "
+                  f"{train_accuracy:.2f}% | Validation accuracy: {val_accuracy:.2f}%")
+
+            writer.add_scalar('Loss/Train', train_loss, epoch)
+            writer.add_scalar('Accuracy/Train', train_accuracy, epoch)
+            writer.add_scalar('Accuracy/Validation', val_accuracy, epoch)
 
             if val_accuracy >= best_accuracy:
                 print(f"Accuracy of {val_accuracy:.2f}% reached. Saving model...")
-                self.save_model(val_accuracy, num_files, batch_size, folder_name)
+                # self.save_model(val_accuracy, num_files, batch_size, folder_name)
+                break
 
 
         # Final results on the test set
         test_accuracy = self.evaluate(self.test_loader)
         print(f"Final test accuracy after {n_epochs} epochs: {test_accuracy:.2f}%")
+        self.save_model(val_accuracy, num_files, batch_size, folder_name)
 
     def save_model(self, accuracy, num_files, batch_size, folder_name):
         """
@@ -279,7 +303,6 @@ class Trainer:
         print(f"Model saved to: {model_path}")
 
 
-
 def clear_memory():
     # Python's garbage collector
     gc.collect()
@@ -287,20 +310,21 @@ def clear_memory():
     # PyTorch's memory management
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
-    print('cleaned')
+    print('Garbage collection and empty cache, done.')
+
+
 if __name__ == '__main__':
+
+    writer = SummaryWriter(log_dir='./runs/test_deeplearning')
     clear_memory()
     # labels_encoding = ['2lux', '5lux', 'LL', 'LD']
     labels_encoding = ['0', '1', '2', '3']
-    BATCH_SIZE = 16
-    NUM_FILES = 300
+    BATCH_SIZE = 20
+    NUM_FILES = 350
     folder_path = filedialog.askdirectory()
     print(f"The path: {folder_path} is going to be treated now.")
 
-    if torch.cuda.is_available():
-        device = "cuda"
-    else:
-        device = 'cpu'
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using: {device} as processing device.")
 
     # Load data
@@ -331,12 +355,12 @@ if __name__ == '__main__':
     model = MFCC_CNN()
     model.to(device)
     loss_fn = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
+    scheduler = ReduceLROnPlateau(optimizer, 'min', patience=10, factor=0.1)
 
     print('Model is ready.')
 
-    print('Training is starting...')
     trainer = Trainer(model, train_loader, val_loader, test_loader, optimizer, loss_fn, device)
-    trainer.train(n_epochs=40, best_accuracy=99, batch_size=BATCH_SIZE, num_files=NUM_FILES, folder_name=os.path.basename(folder_path))
+    trainer.train(n_epochs=50, best_accuracy=99.3, batch_size=BATCH_SIZE, num_files=NUM_FILES, folder_name=os.path.basename(folder_path))
 
 

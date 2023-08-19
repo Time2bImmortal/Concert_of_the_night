@@ -53,7 +53,7 @@ def delete_common_files(train_folder, test_folder):
         print(root)
         for file in files:
             print(file)
-            if file.endswith('.gz'):
+            if file.endswith('.h5'):
                 test_subfolder = extract_subfolder_from_filename(file)
                 if test_subfolder in train_subfolders:
                     test_file_path = os.path.join(root, file)
@@ -345,4 +345,4 @@ def convert_gzip_to_hdf5():
     print(f"Converted gzip files in {folder_path} to HDF5 files in {output_folder}.")
 
 # Call the function
-convert_gzip_to_hdf5()
+# convert_gzip_to_hdf5()
