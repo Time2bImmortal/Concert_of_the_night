@@ -1,8 +1,10 @@
 import os
 import librosa
+import librosa.display
 import matplotlib.pyplot as plt
 import soundfile as sf
 import numpy as np
+import json
 import tkinter as tk
 from tkinter import filedialog
 import math
@@ -96,6 +98,34 @@ class AudioProcessor:
         self.treatments_dir = []
         self.features_dir = None
 
+    def save_mfcc_plot_for_file(self, signal, sr, file_path):
+        """
+        Create a folder and save an MFCC plot for the entire signal.
+        """
+
+        # Create a directory to save plots if it doesn't exist
+        if not os.path.exists('MFCC_Plots'):
+            os.makedirs('MFCC_Plots')
+
+        # Extract MFCCs
+        feature_vectors = self.extract_feature(signal, sr)
+
+        # Save the MFCC plot for the file
+        self.save_mfcc_plot(feature_vectors, sr, file_path)
+
+    def save_mfcc_plot(self, mfccs, sr, file_path):
+        plt.figure(figsize=(10, 4))
+        librosa.display.specshow(mfccs, x_axis='time', sr=sr, hop_length=self.hop_length)
+        plt.colorbar()
+        plt.ylabel('MFCC Coefficients')
+        plt.xlabel('Time (seconds)')
+        plt.title(f'MFCC for {os.path.basename(file_path)}')
+        plt.tight_layout()
+
+        # Save the plot with the filename as its name
+        plt.savefig(os.path.join('MFCC_Plots', f"{os.path.basename(file_path)}.png"))
+        plt.close()
+
     def create_feature_directory(self):
 
         feature_directory = os.path.join(os.path.dirname(self.src_directory), self.feature)
@@ -150,6 +180,7 @@ class AudioProcessor:
             return
         h5_file, h5_path = h5_file_return
         signal, sr = librosa.load(file_path, sr=44100)
+        self.save_mfcc_plot_for_file(signal, sr, file_path)
         num_samples_per_segment, expected_shape = self.get_expected_shape(signal, sr)
 
         for s in range(self.num_segments):
@@ -325,4 +356,7 @@ class AudioProcessor:
             # Assuming data is a dictionary where keys are dataset names and values are numpy arrays
             for key, value in data.items():
                 hf.create_dataset(key, data=np.array(value))
-
+if __name__ == '__main__':
+    folder = filedialog.askdirectory()
+    audio = AudioProcessor('mfcc', folder)
+    audio.run()

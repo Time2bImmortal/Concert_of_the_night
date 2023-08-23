@@ -346,3 +346,38 @@ def convert_gzip_to_hdf5():
 
 # Call the function
 # convert_gzip_to_hdf5()
+def plot_mfcc_from_h5():
+    # Using tkinter to create a file dialog
+    root = tk.Tk()
+    root.withdraw()  # We don't want a full GUI, so keep the root window from appearing
+    file_path = filedialog.askopenfilename(title="Select an .h5 file",
+                                           filetypes=(("h5 files", "*.h5"), ("all files", "*.*")))
+
+    # Check if the user selected a file or canceled the dialog
+    if not file_path:
+        return
+
+    # Open the h5 file
+    with h5py.File(file_path, 'r') as f:
+        # Assuming the MFCCs are stored in a dataset named 'mfcc' within the .h5 file
+        # If the structure is different, adjust accordingly
+        mfccs = f['mfcc'][:]
+
+    # Check the shape to determine the number of segments
+    num_segments = mfccs.shape[0]
+
+    for segment_idx in range(num_segments):
+        user_input = input(
+            f"Press Enter to view MFCC for segment {segment_idx + 1}/{num_segments} or type 'exit' to stop: ")
+        if user_input == 'exit':
+            break
+        plt.imshow(mfccs[segment_idx], cmap='viridis', origin='lower', aspect='auto')
+        plt.colorbar()
+        plt.title(f"MFCC for Segment {segment_idx + 1}")
+        plt.xlabel("Time")
+        plt.ylabel("MFCC Coefficients")
+        plt.tight_layout()
+        plt.show()
+
+
+plot_mfcc_from_h5()
