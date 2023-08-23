@@ -1,19 +1,15 @@
-import soundfile as sf
+# import soundfile as sf
 import json
 import gzip
-import matplotlib.pyplot as plt
-import librosa
+# import matplotlib.pyplot as plt
+# import librosa
 from tkinter import filedialog
 from tkinter import Tk
 import numpy as np
 import os
 import shutil
 import random
-
-treatment_mapping = {
-        "ALAN2": "2lux", "ALAN5": "5lux", "Gb12": "LD", "Gb24": "LL",
-    }
-
+import h5py
 def extract_subfolder_from_filename(filename):
     parts = filename.split('_')
     if len(parts) > 1:
@@ -57,7 +53,7 @@ def delete_common_files(train_folder, test_folder):
         print(root)
         for file in files:
             print(file)
-            if file.endswith('.gz'):
+            if file.endswith('.h5'):
                 test_subfolder = extract_subfolder_from_filename(file)
                 if test_subfolder in train_subfolders:
                     test_file_path = os.path.join(root, file)
@@ -188,13 +184,7 @@ def save_and_compare_audio(filename):
         print("The two files do not contain identical data.")
 
 def copy_missing_wav_files(treatment_mapping):
-    """
-    Copies .wav files from a source subfolder to the corresponding subfolder
-    under the corresponding treatment folder in the destination directory, based on the name of the source subfolder.
-    If the subfolder under the treatment folder does not exist, it is created.
-    """
 
-    # Create root Tk window and hide it
     root = Tk()
     root.withdraw()
 
@@ -311,8 +301,48 @@ def copy_files_not_in_source(num_files, treatment_mapping):
     print(f"Copying from {complete_folder} to {test_folder} completed.")
 
 
-# copy_files_not_in_source(100, treatment_mapping)
+def convert_gzip_to_hdf5():
+    # Create a tkinter root window and immediately hide it
+    root = Tk()
+    root.withdraw()
 
+    # Ask the user to choose a folder
+    folder_path = filedialog.askdirectory(title="Choose the folder containing gzip files")
+    if not folder_path:
+        print("No folder selected!")
+        return
 
+    output_folder = folder_path + '-h5py'
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
 
+    # Walk through the chosen folder and its nested structure
+    for dirpath, dirnames, filenames in os.walk(folder_path):
+        for filename in filenames:
+            if filename.endswith(".gz"):
+                gzip_path = os.path.join(dirpath, filename)
 
+                # Extract the relative path
+                relative_path = os.path.relpath(gzip_path, folder_path)
+
+                # Determine the output path
+                hdf5_path = os.path.join(output_folder, relative_path.replace('.gz', '.h5'))
+
+                # Ensure the directory exists
+                os.makedirs(os.path.dirname(hdf5_path), exist_ok=True)
+
+                # Load JSON from gzip and save it to HDF5
+                with gzip.open(gzip_path, 'rt') as gz_file:
+                    data = json.load(gz_file)
+                    with h5py.File(hdf5_path, 'w') as hf:
+                        for key, value in data.items():
+                            # Check if the value is a list or array-like
+                            if isinstance(value, list) or isinstance(value, dict):
+                                hf.create_dataset(key, data=value, compression="gzip")
+                            else:
+                                hf.create_dataset(key, data=value)
+
+    print(f"Converted gzip files in {folder_path} to HDF5 files in {output_folder}.")
+
+# Call the function
+# convert_gzip_to_hdf5()

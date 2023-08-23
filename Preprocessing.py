@@ -3,11 +3,9 @@ import librosa
 import matplotlib.pyplot as plt
 import soundfile as sf
 import numpy as np
-import json
 import tkinter as tk
 from tkinter import filedialog
 import math
-import gzip
 import collections
 import shutil
 from typing import List
@@ -15,18 +13,13 @@ import multiprocessing
 import glob
 from typing import Tuple
 import supporting_functions
+import h5py
 """
 Here, we preprocess audio files that are already organized in a specific folder structure: 
 Folder > Treatments > Subfolders > Audio files.
 
 The main objective is to create condensed gzip files that contain the extracted sound features, along with the
 corresponding file name, subfolder, treatment, and format information."""
-
-
-FEATURE_ABBREVIATIONS = {
-    "amplitude_envelope": "ae", "root_mean_square": "rms", "zero_crossing_rate": "zcr", "spectral_bandwidth": "bw",
-    "spectral_centroid": "sc", "band_energy_ration": "ber"
-}
 
 
 def process_treatment(audio_processor, treatment):
@@ -56,21 +49,6 @@ def process_audio_interactive(full=False):
 
 
 class AudioExplorer:
-    """
-            Initialize the AudioExplorer class.
-
-            Args:
-                filename (str): The filename of the audio file to explore.
-                full (bool, optional): Flag to indicate whether to display the full waveform or a segment.
-                    Defaults to False.
-
-            This constructor initializes the AudioExplorer object by loading the audio file using `librosa.load()`.
-            It sets the `full` flag to determine the display mode (full waveform or segment).
-            The `duration` attribute is set to 60 seconds if `full` is False, otherwise it is calculated based on the length
-            of the signal divided by the sample rate (`len(self.signal) / self.sr`).
-            The `current_time` attribute is initialized to 0.
-            The `fig` and `ax` attributes are created to hold the figure and axes for the plot.
-            """
     def __init__(self, filename, full=False):
         self.signal, self.sr = librosa.load(filename)
         self.full = full
@@ -79,15 +57,7 @@ class AudioExplorer:
         self.fig, self.ax = plt.subplots()
 
     def display_waveform(self):
-        """
-                Display the waveform plot.
 
-                This method clears the axes and plots the waveform based on the current display mode (`full` flag).
-                If `full` is True, it uses `librosa.display.waveshow()` to plot the full waveform.
-                If `full` is False, it selects a segment of the waveform based on the `current_time` attribute and plots it.
-                The plot's title, x-label, and y-label are set accordingly.
-                The plot is updated on the canvas.
-                """
         self.ax.clear()
         if self.full:
             librosa.display.waveshow(self.signal, sr=self.sr, ax=self.ax)
@@ -102,19 +72,7 @@ class AudioExplorer:
         self.fig.canvas.draw()
 
     def on_key(self, event):
-        """
-                Event handler for key presses.
 
-                Args:
-                    event: The key press event.
-
-                This method handles the key presses for navigating the waveform plot.
-                If the 'right' arrow key is pressed and the next segment is within the audio range,
-                the `current_time` attribute is updated accordingly.
-                If the 'left' arrow key is pressed and the previous segment is within the audio range,
-                the `current_time` attribute is updated accordingly.
-                The waveform plot is then updated.
-                """
         if event.key == 'right' and (self.current_time + 2 * self.duration) * self.sr < len(self.signal):
             self.current_time += self.duration
         elif event.key == 'left' and self.current_time >= self.duration:
@@ -125,25 +83,11 @@ class AudioExplorer:
 
 class AudioProcessor:
     def __init__(self, feature: str, src_directory,
-                 n_mfcc=13, frame_size=2048, hop_length=1024, num_segments=1):
-        """
-        Initialize the AudioProcessor class.
+                 n_mfcc=13, frame_size=2048, hop_length=1024, num_segments=30):
 
-        Args:
-            feature (str): The feature to extract from the audio files.
-            src_directory (str): The source directory containing the audio files.
-            n_mfcc (int, optional): The number of MFCC coefficients to extract. Defaults to 13.
-            frame_size (int, optional): The frame size for feature extraction. Defaults to 2048.
-            hop_length (int, optional): The hop length for feature extraction. Defaults to 1024.
-            num_segments (int, optional): The number of segments to divide each audio file. Defaults to 30.
-
-        This constructor initializes the AudioProcessor object with the specified feature and parameters.
-        It sets the source directory, file extension, and feature extraction parameters.
-        The treatment directories and the features directory are initialized as empty lists or None.
-        """
         self.feature = feature
         self.src_directory = src_directory
-        self.file_extension = ".gz"
+        self.file_extension = ".h5"
         self.n_mfcc = n_mfcc
         self.frame_size = frame_size
         self.hop_length = hop_length
@@ -151,9 +95,6 @@ class AudioProcessor:
         self.treatments = os.listdir(src_directory)
         self.treatments_dir = []
         self.features_dir = None
-        self.per_folder = False
-        self.max_files_per_folder = 20
-        self.num_folders = 10
 
     def create_feature_directory(self):
 
@@ -162,6 +103,7 @@ class AudioProcessor:
         return feature_directory
 
     def create_treatment_directories(self):
+
         for treatment in self.treatments:
             treatment_dir = os.path.join(self.features_dir, treatment)
             self.treatments_dir.append(treatment_dir)
@@ -193,42 +135,20 @@ class AudioProcessor:
 
     def process_treatment(self, treatment_dir_in_src: str, treatment_dir_in_features: str, file_count: int) -> None:
 
-        if self.per_folder:
-            subfolders_processed = 0
-            for root, dirs, files in os.walk(treatment_dir_in_src):
-                if subfolders_processed >= self.num_folders:
-                    break
-
-                wav_files = [file for file in files if file.endswith('.wav')]
-                if len(wav_files) < self.max_files_per_folder:
-                    continue
-
-                wav_files = wav_files[:self.max_files_per_folder]
-                for counter, file_name in enumerate(wav_files, start=1):
-                    file_path = os.path.join(root, file_name)
-                    # Create the new subfolder path in the features directory
-                    subfolder_path = os.path.relpath(root, treatment_dir_in_src)
-                    new_subfolder_path = os.path.join(treatment_dir_in_features, subfolder_path)
-                    os.makedirs(new_subfolder_path, exist_ok=True)
-                    self.process_file(file_path, counter, new_subfolder_path)
-
-                subfolders_processed += 1
-        else:
-            wav_files = glob.glob(os.path.join(treatment_dir_in_src, '**/*.wav'), recursive=True)
-            wav_files = wav_files[:file_count]  # Only take the first `file_count` files
-            for counter, file_path in enumerate(wav_files, start=1):
-                self.process_file(file_path, counter, treatment_dir_in_features)
-
+        wav_files = glob.glob(os.path.join(treatment_dir_in_src, '**/*.wav'), recursive=True)
+        wav_files = wav_files[:file_count]  # Only take the first `file_count` files
+        for counter, file_path in enumerate(wav_files, start=1):
+            self.process_file(file_path, counter, treatment_dir_in_features)
 
     def process_file(self, file_path, counter, treatment_dir_features):
 
         filename, subfolder, treatment, dict_data = self.get_directory_info(file_path)
         print(filename, "is being processed in", treatment)
-        gz_file_return = self.create_gz_file(filename, counter, subfolder, treatment_dir_features)
-        if gz_file_return is None:
+        h5_file_return = self.create_h5_file(filename, counter, subfolder, treatment_dir_features)
+        if h5_file_return is None:
             print(f"Skipping file {file_path} as it already exists.")
             return
-        gz_json_file, gz_json_path = gz_file_return
+        h5_file, h5_path = h5_file_return
         signal, sr = librosa.load(file_path, sr=44100)
         num_samples_per_segment, expected_shape = self.get_expected_shape(signal, sr)
 
@@ -241,7 +161,7 @@ class AudioProcessor:
                 if self.check_feature_vectors(feature_vectors, expected_shape, filename, s):
                     self.update_dict_data(dict_data, feature_vectors, treatment, s)
 
-        self.write_gz_json(dict_data, gz_json_path)
+        self.write_h5(dict_data, h5_path)
         self.write_metadata(sr, signal, feature_vectors)
 
     def write_metadata(self, sr, signal, feature_vectors):
@@ -289,25 +209,27 @@ class AudioProcessor:
         return False
 
     def get_segment_signal(self, filename, s, signal, num_samples_per_segment):
+
         start_sample = int(num_samples_per_segment * s)
         end_sample = int(start_sample + num_samples_per_segment)
         segment_signal = signal[start_sample:end_sample]
+
         if len(segment_signal) == 0:
             print(f"Empty segment signal at segment {s} of file {filename}. Skipping this segment.")
             return None
         return segment_signal
 
-    def create_gz_file(self, filename, counter, subfolder, treatment_dir_features):
+    def create_h5_file(self, filename, counter, subfolder, treatment_dir_features):
 
-        gz_json_file = filename.replace(filename, f"{str(counter).zfill(5)}_{subfolder}_{self.feature}.gz")
-        gz_json_path = os.path.join(treatment_dir_features, gz_json_file)
-
-        if os.path.isfile(gz_json_path):
-            print(f"'{gz_json_file}' file already exists in {treatment_dir_features}. Skipping this file.")
+        h5_file = filename.replace(filename, f"{str(counter).zfill(5)}_{subfolder}_{self.feature}.h5")
+        h5_path = os.path.join(treatment_dir_features, h5_file)
+        if os.path.isfile(h5_path):
+            print(f"'{h5_file}' file already exists in {treatment_dir_features}. Skipping this file.")
             return None
-        return gz_json_file, gz_json_path
+        return h5_file, h5_path
 
     def get_directory_info(self, file_path):
+
         if not os.path.isfile(file_path):
             print(f"Error: {file_path} is not a valid file.")
             return None, None, None, None
@@ -332,31 +254,32 @@ class AudioProcessor:
         return filename, subfolder, treatment, dict_data
 
     def get_expected_shape(self, signal, sr):
+
         duration = librosa.get_duration(y=signal, sr=sr)
         samples_per_track = sr * duration
         num_samples_per_segment = samples_per_track / self.num_segments
+
         if self.feature in ["mfcc", "spectrogram", "mel_spectrogram"]:
             expected_shape = (self.n_mfcc, math.ceil(num_samples_per_segment / self.hop_length))
-        elif self.feature in ["mfcc_double_derivated"]:
-            expected_shape = (39, math.ceil(num_samples_per_segment/ self.hop_length))
         elif self.feature in ["ae", "rms", "zcr", "ber", 'sc', 'bw']:
             expected_shape = (1, math.ceil(num_samples_per_segment / self.hop_length))
         else:
             raise ValueError(f"Unsupported feature: {self.feature}")
+
         return num_samples_per_segment, expected_shape
 
     def extract_feature(self, signal, sr):
 
-        if self.feature == "mfcc_double_derivated":
-            mfcc = librosa.feature.mfcc(y=signal, n_fft=self.frame_size, n_mfcc=self.n_mfcc, hop_length=self.hop_length,
-                                        sr=sr)
-            delta = librosa.feature.delta(mfcc)
-            delta2 = librosa.feature.delta(mfcc, order=2)
-            combined = np.concatenate((mfcc, delta, delta2), axis=0)
-            return combined
         if self.feature == "mfcc":
             return librosa.feature.mfcc(y=signal, n_fft=self.frame_size, n_mfcc=self.n_mfcc, hop_length=self.hop_length,
                                         sr=sr)
+        elif self.feature == "mfccandderived":
+            mfccs = librosa.feature.mfcc(y=signal, n_fft=self.frame_size, n_mfcc=self.n_mfcc,
+                                         hop_length=self.hop_length, sr=sr)
+
+            mfcc_delta = librosa.feature.delta(mfccs)
+            combined = np.vstack([mfccs, mfcc_delta])
+            return combined
         elif self.feature == "spectrogram":
             S_complex = librosa.stft(signal, hop_length=self.hop_length, n_fft=self.frame_size)
             spectrogram = np.abs(S_complex)
@@ -397,26 +320,9 @@ class AudioProcessor:
         else:
             raise ValueError(f"Unsupported feature: {self.feature}")
 
-    def write_gz_json(self, json_obj, filename):
-        json_str = json.dumps(json_obj) + "\n"
-        json_bytes = json_str.encode('utf-8')
+    def write_h5(self, data, filename):
+        with h5py.File(filename, 'w') as hf:
+            # Assuming data is a dictionary where keys are dataset names and values are numpy arrays
+            for key, value in data.items():
+                hf.create_dataset(key, data=np.array(value))
 
-        with gzip.GzipFile(filename, 'w') as fout:
-            fout.write(json_bytes)
-
-
-# if __name__ == "__main__":
-#     root = tk.Tk()
-#     root.withdraw()
-#     src_directory = filedialog.askdirectory(title="Select Source Directory")
-#     root.destroy()
-    # for feature in FEATURE_ABBREVIATIONS.values():
-    #     processor = AudioProcessor(feature, src_directory)
-    #     processor.run()
-# src_directory =
-# processor = AudioProcessor('mfcc', src_directory)
-# processor.run()
-if __name__ == "__main__":
-    src_directory = r"G:\test_unknown_audio"
-    processor = AudioProcessor('mfcc', src_directory)
-    processor.run()

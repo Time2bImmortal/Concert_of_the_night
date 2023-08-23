@@ -2,83 +2,121 @@ import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import tkinter as tk
 from tkinter import filedialog
-# from main import DataLoader
-from tensorflow import keras
 import numpy as np
 import os
-import gzip
-import json
+import torch
 import supporting_functions
-import os
-import pickle
+from pytorch_dl import CustomDataset, CustomDataLoader, DataLoader, MFCC_CNN, compute_mean_std
+from sklearn.preprocessing import LabelEncoder
+
 
 class ModelEvaluator:
-    def __init__(self, model_path, test_folder):
-        self.model = keras.models.load_model(model_path)
-        self.test_folder = test_folder
-        with open('train_data_std_scaler.pkl', 'rb') as f:
-            scaler = pickle.load(f)
-        self.mean = scaler['mean']
-        self.std = scaler['std']
+    def __init__(self, model_path):
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model = MFCC_CNN().to(self.device)
 
-    def evaluate(self, X, y):
-        X = np.expand_dims(X, axis=-1)
+        # Load the state dictionary
+        state_dict = torch.load(model_path)
+        self.model.load_state_dict(state_dict)
+        self.model.eval()  # Set model to evaluation mode
 
-        # Preprocess the data (normalization)
-        X -= self.mean
-        X /= self.std
-
-        # Predict
-        y_pred = self.model.predict(X)
-        y_pred_classes = np.argmax(y_pred, axis=1)
-
-        # Confusion matrix
-        cm = confusion_matrix(y, y_pred_classes)
+    def evaluate(self, dataloader):
+        all_preds = []
+        all_targets = []
+        with torch.no_grad():
+            for data, target in dataloader:
+                data, target = data.to(self.device), target.to(self.device)
+                outputs = self.model(data)
+                _, y_pred_classes = torch.max(outputs, 1)
+                all_preds.extend(y_pred_classes.cpu().numpy())
+                all_targets.extend(target.cpu().numpy())
+        cm = confusion_matrix(all_targets, all_preds)
         return cm
 
-    def plot_confusion_matrix(self, confusion_mat, treatments_indices, title):
-        # Get the treatment names sorted by their indices
-        labels = [name for name, idx in sorted(treatments_indices.items(), key=lambda item: item[1])]
-
+    def plot_confusion_matrix(self, confusion_mat, treatments_indices):
+        labels = [idx for name, idx in sorted(treatments_indices.items(), key=lambda item: item[1])]
         disp = ConfusionMatrixDisplay(confusion_matrix=confusion_mat, display_labels=labels)
         disp.plot(cmap=plt.cm.Blues)
-        plt.xticks(rotation=45)  # This can help if the labels are long and overlapping
-
-        # Calculate confusion matrix results
-        total_samples = confusion_mat.sum()
-        correct_predictions = np.trace(confusion_mat)
-        accuracy = correct_predictions / total_samples
-        false_negatives = confusion_mat.sum(axis=1) - np.diag(confusion_mat)
-        false_positives = confusion_mat.sum(axis=0) - np.diag(confusion_mat)
-        best_guess_class = np.argmax(confusion_mat, axis=1)
-
-        test_directory = os.path.dirname(os.path.abspath(self.test_folder))
-
-        # Create the 'DL_matrix_results' folder if it doesn't exist
-        folder_path = os.path.join(test_directory, 'DL_MATRIX_RESULTS')
-        if not os.path.exists(folder_path):
-            os.makedirs(folder_path)
-
-        # Save the confusion matrix plot in the 'DL_matrix_results' folder
-        plot_file_path = os.path.join(folder_path, f'{title}.png')
-        plt.savefig(plot_file_path)
-
-        # Write confusion matrix results to a text file in the 'DL_matrix_results' folder
-        txt_file_path = os.path.join(folder_path, f'{title}.txt')
-        with open(txt_file_path, 'w') as file:
-            file.write(f"Confusion Matrix Results for {title}\n")
-            file.write(f"Accuracy: {accuracy * 100:.2f}%\n")
-            file.write("\nFalse Negatives:\n")
-            for idx, fn in enumerate(false_negatives):
-                file.write(f"Class {labels[idx]}: {fn}\n")
-            file.write("\nFalse Positives:\n")
-            for idx, fp in enumerate(false_positives):
-                file.write(f"Class {labels[idx]}: {fp}\n")
-            file.write("\nBest Guess Classifications:\n")
-            for idx, guess in enumerate(best_guess_class):
-                file.write(f"Class {labels[idx]}: {labels[guess]}\n")
-
+        plt.xticks(rotation=45)
         plt.show()
 
+    def analysis(self, cm, treatments_indices):
+        # Calculating the accuracy for each class
+        num_correct = np.diagonal(cm)
+        total_per_class = np.sum(cm, axis=1)
+        accuracy_per_class = num_correct / total_per_class
+
+        # Prepare class-wise accuracy data
+        class_accuracies = [(label, acc) for label, acc in zip(treatments_indices.values(), accuracy_per_class)]
+        class_accuracies.sort(key=lambda x: x[1], reverse=True)
+
+        best_guess = class_accuracies[0]
+        worst_guess = class_accuracies[-1]
+
+        return best_guess, worst_guess, class_accuracies
+
+    def save_results(self, cm, treatments_indices, test_folder):
+        best_guess, worst_guess, class_accuracies = self.analysis(cm, treatments_indices)
+
+        # Creating a results directory
+        folder_name = os.path.basename(test_folder)
+        result_dir = os.path.join(test_folder, f"result_{folder_name}")
+        os.makedirs(result_dir, exist_ok=True)
+
+        # Save the confusion matrix image
+        plt.figure()
+        labels = [name for name, idx in sorted(treatments_indices.items(), key=lambda item: item[1])]
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=labels)
+        disp.plot(cmap=plt.cm.Blues)
+        plt.xticks(rotation=45)
+        plt.savefig(os.path.join(result_dir, 'confusion_matrix.png'))
+        plt.close()
+
+        # Save analysis to a text file
+        with open(os.path.join(result_dir, 'analysis.txt'), 'w') as f:
+            f.write("Analysis Report\n")
+            f.write("===============\n\n")
+            f.write(f"Best Guess (Treatment, Accuracy): {best_guess}\n")
+            f.write(f"Worst Guess (Treatment, Accuracy): {worst_guess}\n\n")
+            f.write("Accuracy per Treatment:\n")
+            for label, acc in class_accuracies:
+                f.write(f"{label}: {acc * 100:.2f}%\n")
+
+
+if __name__ == "__main__":
+    # Ask for the train and test folders
+    root = tk.Tk()
+    root.withdraw()
+    labels_encoding = ['0', '1', '2', '3']
+    treatments_indices = {'0': '2lux', '1': '5lux', '2': 'LD', '3': 'LL'}
+    print("Select the train folder")
+    # train_folder = filedialog.askdirectory()
+
+    print("Select the test folder")
+    test_folder = filedialog.askdirectory()
+
+    # Delete files in test folder if found same file in the train folder
+    # supporting_functions.delete_common_files(train_folder, test_folder)
+
+    # Load model
+    model_path = 'accuracy_97.05026455026454_num_files_350_batch_size_20_30_parts_mfcc-h5py/best_model.pth'  # specify the correct model path
+    evaluator = ModelEvaluator(model_path)
+
+    label_encoder = LabelEncoder()
+    label_encoder.fit(labels_encoding)
+    data_loader = CustomDataLoader(test_folder, num_files_per_treatment=100)
+    data_loader.split_data_files(test=True)
+    test_dataset = CustomDataset(data_loader.test_files)
+    test_loader = DataLoader(test_dataset, batch_size=16, shuffle=True, num_workers=12)
+    test_mean, test_std = compute_mean_std(test_loader)
+    ready_set = CustomDataset(data_loader.test_files, labels=label_encoder, mean=test_mean, std=test_std)
+    ready_loader = DataLoader(ready_set, batch_size=16, shuffle=False, num_workers=12)  # DataLoader for ready_set
+
+    # Evaluate
+    confusion_mat = evaluator.evaluate(ready_loader)
+
+    # Plot confusion matrix
+    evaluator.plot_confusion_matrix(confusion_mat, treatments_indices)
+    evaluator.save_results(confusion_mat, treatments_indices, test_folder)
 
 
