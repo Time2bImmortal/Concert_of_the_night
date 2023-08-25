@@ -1,4 +1,6 @@
+import math
 import os
+from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset, DataLoader
 import torch
@@ -11,11 +13,31 @@ import gc
 import time
 import h5py
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-from torch.utils.tensorboard import SummaryWriter
+import numpy as np
+import matplotlib.pyplot as plt
+import itertools
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+import logging
 
+def plot_confusion_matrix(cm, result_dir, title='Confusion matrix'):
+    # The treatments_indices dictionary
+    treatments_indices = {'2': 'LD', '0': '2lux', '1': '5lux', '3': 'LL'}
+
+    # Custom ordering function for the keys
+    order = {'2': 0, '0': 1, '1': 2, '3': 3}
+    sorted_keys = sorted(treatments_indices.keys(), key=lambda x: order[x])
+
+    labels = [treatments_indices[key] for key in sorted_keys]
+
+    plt.figure(figsize=(8, 6))
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=labels)
+    disp.plot(cmap=plt.cm.Blues, ax=plt.gca())  # Explicitly passing the current axes (ax) to the plot method
+    plt.title(title)
+
+    plt.savefig(os.path.join(result_dir, "confusion_matrix.png"))
+    plt.close()
 
 def compute_mean_std(loader):
-    print("compute_mean_std function called...")
 
     mean = 0.0
     var = 0.0
@@ -23,7 +45,8 @@ def compute_mean_std(loader):
 
     # loop through each batch in the loader
     for idx, (data, _) in enumerate(loader):
-        print(f"Processing batch {idx + 1}...")
+        if idx % 100 == 0:  # Print every 100 batches
+            print(f"Processing batch {idx + 1}...")
 
         batch_samples = data.size(0)
         data = data.view(batch_samples, data.size(1), -1)
@@ -39,7 +62,7 @@ def compute_mean_std(loader):
 
 
 class CustomDataset(Dataset):
-    def __init__(self, file_paths, labels = None, mean=None, std=None):
+    def __init__(self, file_paths, labels=None, mean=None, std=None):
         self.file_paths = file_paths
         self.mean = mean
         self.std = std
@@ -107,38 +130,94 @@ class CustomDataLoader:
                 treatment_files[treatment] = [os.path.join(treatment_path, f) for f in valid_files[:self.num_files_per_treatment]]
         return treatment_files
 
-    def split_data_files(self, test=False):
+    def split_data_files(self, diagnostic_mode=False):
         treatment_files = self._get_filtered_files()
-        for files in treatment_files.values():
-            random.shuffle(files)  # Shuffle the files before splitting
-            if test:
+
+        if diagnostic_mode:
+            # All files are used for testing if test flag is True
+            for treatment, files in treatment_files.items():
                 self.test_files.extend(files)
-            else:
-                train, test = train_test_split(files, test_size=self.test_size)
-                self.train_files.extend(train)
-                self.test_files.extend(test)
+        else:
+            all_train_files = []
+            all_test_files = []
 
-        # Now, shuffle the train files again (this is optional but ensures randomness after accumulating all train files)
-                random.shuffle(self.train_files)
-                self.train_files, self.val_files = train_test_split(self.train_files, test_size=0.2)
-            random.shuffle(self.test_files)
+            for treatment, files in treatment_files.items():
+                logging.info(f"{treatment}: {len(files)} files")
+                random.shuffle(files)  # Shuffle the files before splitting
+
+                train, test_data = train_test_split(files, test_size=self.test_size)
+                all_train_files.extend(train)
+                all_test_files.extend(test_data)
+
+            self.train_files, self.val_files = train_test_split(all_train_files, test_size=0.2)
+            self.test_files = all_test_files
+        logging.info(f"Train files: {len(self.train_files)}")
+        logging.info(f"Validation files: {len(self.val_files)}")
+        logging.info(f"Test files: {len(self.test_files)}")
 
 
-class SelfAttention(nn.Module):
-    def __init__(self, input_dim, attention_dim=128):
-        super(SelfAttention, self).__init__()
-        self.query = nn.Linear(input_dim, attention_dim)
-        self.key = nn.Linear(input_dim, attention_dim)
-        self.value = nn.Linear(input_dim, attention_dim)
+class TransformerBlock(nn.Module):
+    def __init__(self, d_model, nhead, num_layers):
+        super(TransformerBlock, self).__init__()
+        self.transformer_layer = nn.TransformerEncoderLayer(d_model, nhead)
+        self.transformer = nn.TransformerEncoder(self.transformer_layer, num_layers=num_layers)
 
     def forward(self, x):
-        q = self.query(x)
-        k = self.key(x)
-        v = self.value(x)
+        return self.transformer(x)
+class MFCC_Transformer(nn.Module):
+    def __init__(self):
+        super(MFCC_Transformer, self).__init__()
 
-        attention_weights = F.softmax(q @ k.transpose(-2, -1), dim=-1)
-        attended = attention_weights @ v
-        return attended
+        # Convolution layers
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=(5, 10), stride=1, padding=(2, 5))
+        self.bn1 = nn.BatchNorm2d(32)
+        self.dropout_conv1 = nn.Dropout(0.3)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=(5, 10), stride=1, padding=(2, 5))
+        self.bn2 = nn.BatchNorm2d(64)
+        self.dropout_conv2 = nn.Dropout(0.2)
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=(5, 10), stride=1, padding=(2, 5))
+        self.bn3 = nn.BatchNorm2d(128)
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
+
+        self.positional_encodings = self._generate_positional_encodings(128).to(device)
+        print(self.positional_encodings.shape)
+
+        self.transformer_block = TransformerBlock(d_model=128, nhead=8, num_layers=2)
+
+        self.fc1 = nn.Linear(82688, 512)
+        self.fc2 = nn.Linear(512, 4)
+        self.dropout = nn.Dropout(0.3)
+
+    def forward(self, x):
+
+        x = x.permute(0, 2, 1)
+        x = x.unsqueeze(1)  # This adds a channel dimension
+        x = self.dropout_conv1(self.pool(F.relu(self.bn1(self.conv1(x)))))
+        x = self.dropout_conv2(self.pool(F.relu(self.bn2(self.conv2(x)))))
+        x = self.pool(F.relu(self.bn3(self.conv3(x))))
+
+        # Reshaping before adding positional encodings
+        x = x.view(x.size(0), x.size(1), -1).permute(0, 2, 1)  # Shape becomes [batch_size, 646, 128]
+
+        x += self.positional_encodings[:, :x.size(1), :]
+
+        x = self.transformer_block(x)
+        x = x.view(x.size(0), -1)
+        x = F.relu(self.fc1(x))
+        x = self.dropout(x)
+        x = self.fc2(x)
+
+        return x
+
+    def _generate_positional_encodings(self, d_model, max_len=646):
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0)  # This makes it [1, 646, 128]
+        return pe
+
 
 class MFCC_CNN(nn.Module):
     def __init__(self):
@@ -147,8 +226,10 @@ class MFCC_CNN(nn.Module):
         # Convolution layers
         self.conv1 = nn.Conv2d(1, 32, kernel_size=(5, 10), stride=1, padding=(2, 5))
         self.bn1 = nn.BatchNorm2d(32) # Batch Normalization after conv1
+        self.dropout_conv1 = nn.Dropout(0.4)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=(5, 10), stride=1, padding=(2, 5))
         self.bn2 = nn.BatchNorm2d(64) # Batch Normalization after conv2
+        self.dropout_conv2 = nn.Dropout(0.4)
         self.conv3 = nn.Conv2d(64, 128, kernel_size=(5, 10), stride=1, padding=(2, 5))
         self.bn3 = nn.BatchNorm2d(128) # Batch Normalization after conv3
 
@@ -165,19 +246,16 @@ class MFCC_CNN(nn.Module):
         self.fc2 = nn.Linear(512, 4)
 
         # Dropout layer
-        self.dropout = nn.Dropout(0.5)
+        self.dropout = nn.Dropout(0.4)
 
     def forward(self, x):
         x = x.unsqueeze(1)
-        # Pass data through convolution layers with added batch normalization
-        x = self.pool(F.relu(self.bn1(self.conv1(x))))
-        x = self.pool(F.relu(self.bn2(self.conv2(x))))
+
+        x = self.dropout_conv1(self.pool(F.relu(self.bn1(self.conv1(x)))))
+        x = self.dropout_conv2(self.pool(F.relu(self.bn2(self.conv2(x)))))
         x = self.pool(F.relu(self.bn3(self.conv3(x))))
 
-        # Flatten the matrix
         x = x.view(x.size(0), -1)
-        # x = self.attention(x)
-        # Pass data through fully connected layers
         x = F.relu(self.fc1(x))
         x = self.dropout(x)
         x = self.fc2(x)
@@ -200,7 +278,7 @@ class MFCC_CNN(nn.Module):
 
 class Trainer:
     def __init__(self, model, train_loader, val_loader, test_loader, optimizer, loss_fn, device):
-        print('Training initialized...')
+        logging.info(f"Training initialized ...")
         self.model = model
         self.train_loader = train_loader
         self.val_loader = val_loader
@@ -208,6 +286,9 @@ class Trainer:
         self.optimizer = optimizer
         self.loss_fn = loss_fn
         self.device = device
+        self.train_losses = []
+        self.train_accuracies = []
+        self.val_accuracies = []
 
     def train_epoch(self):
         print_interval = len(self.train_loader) // 10  # print 10 times per epoch
@@ -239,57 +320,130 @@ class Trainer:
                 last_print_time = time.time()  # Update the last print time
 
         accuracy = 100. * correct_train / total_train
+
         return total_loss / (batch_idx + 1), accuracy
 
     def evaluate(self, loader):
         self.model.eval()
-        correct = 0
-        total = 0
+        all_predictions = []
+        all_true_labels = []
         with torch.no_grad():
             for data, target in loader:
                 data, target = data.to(self.device), target.to(self.device)
                 outputs = self.model(data)
                 _, predicted = outputs.max(1)
-                total += target.size(0)
-                correct += predicted.eq(target).sum().item()
-        accuracy = 100. * correct / total
-        return accuracy
+                all_predictions.extend(predicted.cpu().numpy())
+                all_true_labels.extend(target.cpu().numpy())
+        accuracy = 100. * sum(np.array(all_predictions) == np.array(all_true_labels)) / len(all_true_labels)
+        return accuracy, all_predictions, all_true_labels
 
     def train(self, n_epochs, best_accuracy, num_files, batch_size, folder_name):
-        print('Training is starting...')
-        for epoch in range(n_epochs):
+        directory = r"C:\Users\yfant\OneDrive\Desktop"  # Define your directory path here
+        pause_path = os.path.join(directory, "pause.txt")
+        checkpoint_path = os.path.join(directory, "saved_training_step.pth")
+
+        # Check for saved_training_step at the start
+        if os.path.exists(checkpoint_path):
+            checkpoint = torch.load(checkpoint_path)
+            model.load_state_dict(checkpoint['model_state_dict'])
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            start_epoch = checkpoint['epoch'] + 1
+            self.train_losses = checkpoint.get('train_losses', [])
+            self.train_accuracies = checkpoint.get('train_accuracies', [])
+            self.val_accuracies = checkpoint.get('val_accuracies', [])
+        else:
+            start_epoch = 0
+
+        logging.info(f"Training started")
+        for epoch in range(start_epoch, n_epochs):
+
             train_loss, train_accuracy = self.train_epoch()
-            val_accuracy = self.evaluate(self.val_loader)
+            val_accuracy = self.evaluate(self.val_loader)[0]
             print(f"Epoch {epoch + 1}/{n_epochs}\t Training loss: {train_loss:.4f} | Training accuracy: "
                   f"{train_accuracy:.2f}% | Validation accuracy: {val_accuracy:.2f}%")
 
-            writer.add_scalar('Loss/Train', train_loss, epoch)
-            writer.add_scalar('Accuracy/Train', train_accuracy, epoch)
-            writer.add_scalar('Accuracy/Validation', val_accuracy, epoch)
+            self.train_losses.append(train_loss)
+            self.train_accuracies.append(train_accuracy)
+            self.val_accuracies.append(val_accuracy)
 
-            if val_accuracy >= best_accuracy:
+            if float(val_accuracy) >= best_accuracy:
                 print(f"Accuracy of {val_accuracy:.2f}% reached. Saving model...")
-                # self.save_model(val_accuracy, num_files, batch_size, folder_name)
+                time.sleep(1)
+                test_accuracy, test_predictions, test_true_labels = self.evaluate(self.test_loader)
+                cm = confusion_matrix(test_true_labels, test_predictions)
+                plot_confusion_matrix(cm, result_dir=result_dir)
+                print(f"Final test accuracy after {epoch + 1} epochs: {test_accuracy:.2f}%")
+                time.sleep(1)
+                self.plot_learning_curve(result_dir)
+                self.save_model(val_accuracy, num_files, batch_size, folder_name)
+
+            # Check for pause.txt at the end of each epoch
+            if os.path.exists(pause_path):
+                self.save_checkpoint(epoch, checkpoint_path)
+                print(
+                    f"Paused and saved at epoch {epoch}. To continue, remove the pause.txt file and start training again.")
                 break
 
 
         # Final results on the test set
-        test_accuracy = self.evaluate(self.test_loader)
+        time.sleep(1)
+        test_accuracy, test_predictions, test_true_labels = self.evaluate(self.test_loader)
+        cm = confusion_matrix(test_true_labels, test_predictions)
+        plot_confusion_matrix(cm, result_dir=result_dir)
         print(f"Final test accuracy after {n_epochs} epochs: {test_accuracy:.2f}%")
+        time.sleep(1)
+        self.plot_learning_curve(result_dir)
         self.save_model(val_accuracy, num_files, batch_size, folder_name)
 
-    def save_model(self, accuracy, num_files, batch_size, folder_name):
-        """
-        Save the PyTorch model to a specified directory with a specific naming convention.
+    def save_checkpoint(self, epoch, path):
+        """Save current training state."""
+        checkpoint = {
+            'epoch': epoch,
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'train_losses': self.train_losses,
+            'train_accuracies': self.train_accuracies,
+            'val_accuracies': self.val_accuracies,
+        }
 
-        :param accuracy: Accuracy of the model
-        :param num_files: Number of files used to train the model
-        :param batch_size: Batch size used during training
-        :param folder_name: Root folder name where the model should be saved
-        """
+        torch.save(checkpoint, path)
+        print(f"Saved training state at epoch {epoch} to {path}.")
+
+    def plot_learning_curve(self, result_dir):
+        epochs = range(1, len(self.train_losses) + 1)
+
+        # Adjust x-ticks
+        x_ticks = list(range(1, len(self.train_losses) + 1, 5))
+        if len(self.train_losses) not in x_ticks:
+            x_ticks.append(len(self.train_losses))
+
+        # Plot training and validation accuracy values
+        plt.figure()
+        plt.plot(epochs, self.train_accuracies, 'b', label='Training accuracy')
+        plt.plot(epochs, self.val_accuracies, 'r', label='Validation accuracy')
+        plt.title('Training and Validation accuracy')
+        plt.xlabel('Epochs')
+        plt.ylabel('Accuracy')
+        plt.legend()
+        plt.xticks(x_ticks)
+        plt.savefig(os.path.join(result_dir, "learning_curve_accuracy.png"))
+        plt.close()
+
+        # Plot training loss values
+        plt.figure()
+        plt.plot(epochs, self.train_losses, 'b', label='Training loss')
+        plt.title('Training loss')
+        plt.xlabel('Epochs')
+        plt.ylabel('Loss')
+        plt.legend()
+        plt.xticks(x_ticks)
+        plt.savefig(os.path.join(result_dir, "learning_curve_loss.png"))
+        plt.close()
+
+    def save_model(self, accuracy, num_files, batch_size, folder_name):
 
         # Create the directory name based on the given parameters
-        dir_name = f"accuracy_{accuracy}_num_files_{num_files}_batch_size_{batch_size}_{folder_name}"
+        dir_name = f"accuracy_{accuracy:.2f}_num_files_{num_files}_batch_size_{batch_size}_{folder_name}"
 
         # Create the directory if it doesn't exist
         if not os.path.exists(dir_name):
@@ -314,53 +468,58 @@ def clear_memory():
 
 
 if __name__ == '__main__':
-
-    writer = SummaryWriter(log_dir='./runs/test_deeplearning')
+    os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
     clear_memory()
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     # labels_encoding = ['2lux', '5lux', 'LL', 'LD']
     labels_encoding = ['0', '1', '2', '3']
-    BATCH_SIZE = 20
-    NUM_FILES = 350
+    BATCH_SIZE = 24
+    NUM_FILES = 362
     folder_path = filedialog.askdirectory()
-    print(f"The path: {folder_path} is going to be treated now.")
+    logging.info(f"The path: {folder_path} is going to be treated now.")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using: {device} as processing device.")
+    logging.info(f"Using: {device} as processing device.")
 
     # Load data
-    print("Splitting files...")
+    logging.info("Splitting files...")
     data_loader = CustomDataLoader(folder_path, num_files_per_treatment=NUM_FILES)
     data_loader.split_data_files()
-    print("Files have been split successfully!")
+    logging.info("Files have been split successfully!")
 
     label_encoder = LabelEncoder()
     label_encoder.fit(labels_encoding)
-    print('Encoder is ready!')
 
     train_dataset = CustomDataset(data_loader.train_files)
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=12)
     train_mean, train_std = compute_mean_std(train_loader)
-    print('Normalisation is ready!')
+    logging.info(f"Training set has been normalized")
 
     train_dataset = CustomDataset(data_loader.train_files, labels=label_encoder, mean=train_mean, std=train_std)
     val_dataset = CustomDataset(data_loader.val_files, labels=label_encoder, mean=train_mean, std=train_std)
     test_dataset = CustomDataset(data_loader.test_files, labels=label_encoder, mean=train_mean, std=train_std)
 
+    # Results directory
+    folder_name = os.path.basename(folder_path)
+    parent_directory = os.path.dirname(folder_path)
+    result_dir = os.path.join(parent_directory, f"result_{folder_name}")
+    os.makedirs(result_dir, exist_ok=True)
+
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=12, pin_memory=True)
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=12)
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    logging.info('Data has been loaded and ready to be processed.')
 
-    print('Data has been loaded and ready to be processed.')
 
-    model = MFCC_CNN()
+    # model = MFCC_CNN()
+    model = MFCC_Transformer()
     model.to(device)
     loss_fn = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
-    scheduler = ReduceLROnPlateau(optimizer, 'min', patience=10, factor=0.1)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.00008, weight_decay=0.00008)
+    scheduler = ReduceLROnPlateau(optimizer, 'min', patience=10, factor=0.7)
 
-    print('Model is ready.')
 
     trainer = Trainer(model, train_loader, val_loader, test_loader, optimizer, loss_fn, device)
-    trainer.train(n_epochs=50, best_accuracy=99.3, batch_size=BATCH_SIZE, num_files=NUM_FILES, folder_name=os.path.basename(folder_path))
+    trainer.train(n_epochs=100, best_accuracy=98, batch_size=BATCH_SIZE, num_files=NUM_FILES, folder_name=os.path.basename(folder_path))
 
 

@@ -1,8 +1,8 @@
-# import soundfile as sf
+import soundfile as sf
 import json
 import gzip
-# import matplotlib.pyplot as plt
-# import librosa
+import matplotlib.pyplot as plt
+import librosa
 from tkinter import filedialog
 from tkinter import Tk
 import numpy as np
@@ -10,6 +10,8 @@ import os
 import shutil
 import random
 import h5py
+
+
 def extract_subfolder_from_filename(filename):
     parts = filename.split('_')
     if len(parts) > 1:
@@ -344,40 +346,51 @@ def convert_gzip_to_hdf5():
 
     print(f"Converted gzip files in {folder_path} to HDF5 files in {output_folder}.")
 
-# Call the function
+# def delete_gz_files():
+#     """
+#     Delete all files with .gz extension in the given directory and its sub-directories.
+#     """
+#     directory = filedialog.askdirectory()
+#     for root, _, files in os.walk(directory):
+#         for file in files:
+#             if file.endswith('.gz'):
+#                 file_path = os.path.join(root, file)
+#                 os.remove(file_path)
+#                 print(f"Deleted: {file_path}")
 # convert_gzip_to_hdf5()
-def plot_mfcc_from_h5():
+def plot_mfcc_from_h5(sample_rate=44100, frame_size=2048, hop_length=1024):
+    frame_length_sec = frame_size / sample_rate
+    hop_length_sec = hop_length / sample_rate
+
     # Using tkinter to create a file dialog
-    root = tk.Tk()
-    root.withdraw()  # We don't want a full GUI, so keep the root window from appearing
+    root = Tk()
+    root.withdraw()
     file_path = filedialog.askopenfilename(title="Select an .h5 file",
                                            filetypes=(("h5 files", "*.h5"), ("all files", "*.*")))
 
-    # Check if the user selected a file or canceled the dialog
     if not file_path:
         return
 
-    # Open the h5 file
     with h5py.File(file_path, 'r') as f:
-        # Assuming the MFCCs are stored in a dataset named 'mfcc' within the .h5 file
-        # If the structure is different, adjust accordingly
         mfccs = f['mfcc'][:]
 
-    # Check the shape to determine the number of segments
     num_segments = mfccs.shape[0]
+    num_frames = mfccs.shape[2]
+    time_labels = [i * hop_length_sec for i in range(num_frames)]
 
     for segment_idx in range(num_segments):
         user_input = input(
             f"Press Enter to view MFCC for segment {segment_idx + 1}/{num_segments} or type 'exit' to stop: ")
         if user_input == 'exit':
             break
-        plt.imshow(mfccs[segment_idx], cmap='viridis', origin='lower', aspect='auto')
+        plt.imshow(mfccs[segment_idx], cmap='viridis', origin='lower', aspect='auto',
+                   extent=[time_labels[0], time_labels[-1], 0, mfccs.shape[1]])
         plt.colorbar()
         plt.title(f"MFCC for Segment {segment_idx + 1}")
-        plt.xlabel("Time")
+        plt.xlabel("Time (s)")
         plt.ylabel("MFCC Coefficients")
         plt.tight_layout()
         plt.show()
 
 
-plot_mfcc_from_h5()
+# plot_mfcc_from_h5()
