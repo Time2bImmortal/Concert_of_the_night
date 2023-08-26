@@ -19,6 +19,18 @@ import itertools
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import logging
 
+def set_seed(seed_value=42):
+    """Set seed for reproducibility."""
+    random.seed(seed_value)
+    np.random.seed(seed_value)
+    torch.manual_seed(seed_value)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed_value)
+        torch.cuda.manual_seed_all(seed_value)  # if you are using multi-GPU.
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+        
 def plot_confusion_matrix(cm, result_dir, title='Confusion matrix'):
     # The treatments_indices dictionary
     treatments_indices = {'2': 'LD', '0': '2lux', '1': '5lux', '3': 'LL'}
@@ -37,8 +49,8 @@ def plot_confusion_matrix(cm, result_dir, title='Confusion matrix'):
     plt.savefig(os.path.join(result_dir, "confusion_matrix.png"))
     plt.close()
 
-def compute_mean_std(loader):
 
+def compute_mean_std(loader):
     mean = 0.0
     var = 0.0
     nb_samples = 0
@@ -103,13 +115,13 @@ class CustomDataset(Dataset):
 
             tensor_mfcc = (tensor_mfcc - self.mean[:, None]) / self.std[:, None]
 
-
         tensor_label = torch.tensor(label, dtype=torch.long)
         return tensor_mfcc, tensor_label
 
 
 class CustomDataLoader:
-    def __init__(self, folder_path, num_files_per_treatment=300, min_file_size=3600000, max_file_size=4600000, file_extension='.h5', test_size=0.1):
+    def __init__(self, folder_path, num_files_per_treatment=300, min_file_size=3600000, max_file_size=4600000,
+                 file_extension='.h5', test_size=0.1):
         self.folder_path = folder_path
         self.num_files_per_treatment = num_files_per_treatment
         self.min_file_size = min_file_size
@@ -126,8 +138,11 @@ class CustomDataLoader:
         for treatment in treatments:
             treatment_path = os.path.join(self.folder_path, treatment)
             if os.path.isdir(treatment_path):
-                valid_files = [f for f in os.listdir(treatment_path) if f.endswith(self.file_extension) and self.min_file_size <= os.path.getsize(os.path.join(treatment_path, f)) <= self.max_file_size]
-                treatment_files[treatment] = [os.path.join(treatment_path, f) for f in valid_files[:self.num_files_per_treatment]]
+                valid_files = [f for f in os.listdir(treatment_path) if
+                               f.endswith(self.file_extension) and self.min_file_size <= os.path.getsize(
+                                   os.path.join(treatment_path, f)) <= self.max_file_size]
+                treatment_files[treatment] = [os.path.join(treatment_path, f) for f in
+                                              valid_files[:self.num_files_per_treatment]]
         return treatment_files
 
     def split_data_files(self, diagnostic_mode=False):
@@ -140,7 +155,7 @@ class CustomDataLoader:
         else:
             all_train_files = []
             all_test_files = []
-
+            set_seed(42)
             for treatment, files in treatment_files.items():
                 logging.info(f"{treatment}: {len(files)} files")
                 random.shuffle(files)  # Shuffle the files before splitting
@@ -164,9 +179,12 @@ class TransformerBlock(nn.Module):
 
     def forward(self, x):
         return self.transformer(x)
+
+
 class MFCC_Transformer(nn.Module):
     def __init__(self):
         super(MFCC_Transformer, self).__init__()
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         # Convolution layers
         self.conv1 = nn.Conv2d(1, 32, kernel_size=(5, 10), stride=1, padding=(2, 5))
@@ -179,7 +197,7 @@ class MFCC_Transformer(nn.Module):
         self.bn3 = nn.BatchNorm2d(128)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
 
-        self.positional_encodings = self._generate_positional_encodings(128).to(device)
+        self.positional_encodings = self._generate_positional_encodings(128).to(self.device)
         print(self.positional_encodings.shape)
 
         self.transformer_block = TransformerBlock(d_model=128, nhead=8, num_layers=2)
@@ -189,7 +207,6 @@ class MFCC_Transformer(nn.Module):
         self.dropout = nn.Dropout(0.3)
 
     def forward(self, x):
-
         x = x.permute(0, 2, 1)
         x = x.unsqueeze(1)  # This adds a channel dimension
         x = self.dropout_conv1(self.pool(F.relu(self.bn1(self.conv1(x)))))
@@ -224,15 +241,24 @@ class MFCC_CNN(nn.Module):
         super(MFCC_CNN, self).__init__()
 
         # Convolution layers
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=(5, 10), stride=1, padding=(2, 5))
-        self.bn1 = nn.BatchNorm2d(32) # Batch Normalization after conv1
-        self.dropout_conv1 = nn.Dropout(0.4)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=(5, 10), stride=1, padding=(2, 5))
-        self.bn2 = nn.BatchNorm2d(64) # Batch Normalization after conv2
-        self.dropout_conv2 = nn.Dropout(0.4)
-        self.conv3 = nn.Conv2d(64, 128, kernel_size=(5, 10), stride=1, padding=(2, 5))
-        self.bn3 = nn.BatchNorm2d(128) # Batch Normalization after conv3
+        # self.conv1 = nn.Conv2d(1, 32, kernel_size=(5, 10), stride=1, padding=(2, 5))
+        # self.bn1 = nn.BatchNorm2d(32)  # Batch Normalization after conv1
+        # self.dropout_conv1 = nn.Dropout(0.5)
+        # self.conv2 = nn.Conv2d(32, 64, kernel_size=(5, 10), stride=1, padding=(2, 5))
+        # self.bn2 = nn.BatchNorm2d(64)  # Batch Normalization after conv2
+        # self.dropout_conv2 = nn.Dropout(0.5)
+        # self.conv3 = nn.Conv2d(64, 128, kernel_size=(5, 10), stride=1, padding=(2, 5))
+        # self.bn3 = nn.BatchNorm2d(128)  # Batch Normalization after conv3
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=(2, 17), stride=1, padding=(1, 8))
+        self.bn1 = nn.BatchNorm2d(32)  # Batch Normalization after conv1
+        self.dropout_conv1 = nn.Dropout(0.5)
 
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=(2, 17), stride=1, padding=(1, 8))
+        self.bn2 = nn.BatchNorm2d(64)  # Batch Normalization after conv2
+        self.dropout_conv2 = nn.Dropout(0.5)
+
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=(2, 17), stride=1, padding=(1, 8))
+        self.bn3 = nn.BatchNorm2d(128)  # Batch Normalization after conv3
         # Max pooling layer
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
 
@@ -246,7 +272,7 @@ class MFCC_CNN(nn.Module):
         self.fc2 = nn.Linear(512, 4)
 
         # Dropout layer
-        self.dropout = nn.Dropout(0.4)
+        self.dropout = nn.Dropout(0.4 )
 
     def forward(self, x):
         x = x.unsqueeze(1)
@@ -275,6 +301,7 @@ class MFCC_CNN(nn.Module):
         x = self.pool(F.relu(self.conv2(x)))
         x = self.pool(F.relu(self.conv3(x)))
         return x
+
 
 class Trainer:
     def __init__(self, model, train_loader, val_loader, test_loader, optimizer, loss_fn, device):
@@ -344,6 +371,9 @@ class Trainer:
 
         # Check for saved_training_step at the start
         if os.path.exists(checkpoint_path):
+            logging.info(
+                "A model already exists, let's continue with it (move it in another directory if you want to keep it"
+                "or erase it, I don't care, just do something with your pathetic life")
             checkpoint = torch.load(checkpoint_path)
             model.load_state_dict(checkpoint['model_state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -383,7 +413,6 @@ class Trainer:
                 print(
                     f"Paused and saved at epoch {epoch}. To continue, remove the pause.txt file and start training again.")
                 break
-
 
         # Final results on the test set
         time.sleep(1)
@@ -510,16 +539,13 @@ if __name__ == '__main__':
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
     logging.info('Data has been loaded and ready to be processed.')
 
-
     # model = MFCC_CNN()
-    model = MFCC_Transformer()
+    model =MFCC_CNN()
     model.to(device)
     loss_fn = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.00008, weight_decay=0.00008)
-    scheduler = ReduceLROnPlateau(optimizer, 'min', patience=10, factor=0.7)
-
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.00015, weight_decay=0.00010)
+    scheduler = ReduceLROnPlateau(optimizer, 'min', patience=10, factor=0.8)
 
     trainer = Trainer(model, train_loader, val_loader, test_loader, optimizer, loss_fn, device)
-    trainer.train(n_epochs=100, best_accuracy=98, batch_size=BATCH_SIZE, num_files=NUM_FILES, folder_name=os.path.basename(folder_path))
-
-
+    trainer.train(n_epochs=100, best_accuracy=98, batch_size=BATCH_SIZE, num_files=NUM_FILES,
+                  folder_name=os.path.basename(folder_path))

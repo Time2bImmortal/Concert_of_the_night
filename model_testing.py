@@ -6,15 +6,15 @@ import numpy as np
 import os
 import torch
 import supporting_functions
-from pytorch_dl import CustomDataset, CustomDataLoader, DataLoader, MFCC_CNN, compute_mean_std
+from pytorch_dl import CustomDataset, CustomDataLoader, DataLoader, MFCC_CNN, compute_mean_std, MFCC_Transformer
 from sklearn.preprocessing import LabelEncoder
 
 
 class ModelEvaluator:
     def __init__(self, model_path):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = MFCC_CNN().to(self.device)
-
+        # self.model = MFCC_CNN().to(self.device)
+        self.model = MFCC_Transformer().to(self.device)
         # Load the state dictionary
         state_dict = torch.load(model_path)
         self.model.load_state_dict(state_dict)
@@ -107,7 +107,7 @@ if __name__ == "__main__":
     # supporting_functions.delete_common_files(train_folder, test_folder)
 
     # Load model
-    model_path = r'accuracy_97.37_num_files_362_batch_size_30_30_parts_mfcc-h5py\best_model.pth'
+    model_path = r'accuracy_92.04_num_files_362_batch_size_24_30_parts_mfcc-h5py\best_model.pth'
     evaluator = ModelEvaluator(model_path)
 
     label_encoder = LabelEncoder()
@@ -115,10 +115,10 @@ if __name__ == "__main__":
     data_loader = CustomDataLoader(test_folder, num_files_per_treatment=100)
     data_loader.split_data_files(diagnostic_mode=True)
     test_dataset = CustomDataset(data_loader.test_files)
-    test_loader = DataLoader(test_dataset, batch_size=30, shuffle=True, num_workers=12)
+    test_loader = DataLoader(test_dataset, batch_size=24, shuffle=True, num_workers=12)
     test_mean, test_std = compute_mean_std(test_loader)
     ready_set = CustomDataset(data_loader.test_files, labels=label_encoder, mean=test_mean, std=test_std)
-    ready_loader = DataLoader(ready_set, batch_size=30, shuffle=False, num_workers=12)  # DataLoader for ready_set
+    ready_loader = DataLoader(ready_set, batch_size=24, shuffle=False, num_workers=12)  # DataLoader for ready_set
 
     # Evaluate
     confusion_mat = evaluator.evaluate(ready_loader)
