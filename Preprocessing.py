@@ -85,7 +85,7 @@ class AudioExplorer:
 
 class AudioProcessor:
     def __init__(self, feature: str, src_directory,
-                 n_mfcc=128, frame_size=2048, hop_length=1024, num_segments=30):
+                 n_mfcc=13, frame_size=2048, hop_length=1024, num_segments=30, use_folder_structure=True):
 
         self.feature = feature
         self.src_directory = src_directory
@@ -97,6 +97,13 @@ class AudioProcessor:
         self.treatments = os.listdir(src_directory)
         self.treatments_dir = []
         self.features_dir = None
+        self.use_folder_structure = use_folder_structure
+        self.treatment_mapping = {
+            'Gb12': 'LD',
+            'Gb24': 'LL',
+            'ALAN5': '5lux',
+            'ALAN2': '2lux'
+        }
 
     def create_feature_directory(self):
 
@@ -111,21 +118,34 @@ class AudioProcessor:
             self.treatments_dir.append(treatment_dir)
             os.makedirs(treatment_dir, exist_ok=True)
 
+    def select_file_with_paths(self):
+        root = tk.Tk()
+        root.withdraw()  # Hide the main window
+        filepath = filedialog.askopenfilename(title="Select the file with paths")
+        if filepath:
+            self.set_treatments_from_textfile(filepath)
+
     def set_treatments_from_textfile(self, filepath):
-        """Set treatments based on paths provided in a text file."""
         if not os.path.exists(filepath):
             print(f"Error: The file {filepath} does not exist.")
             return
 
         with open(filepath, 'r') as file:
             paths = [line.strip() for line in file]
-            # Filter valid directories and assign to treatments
-            self.treatments = [os.path.basename(path) for path in paths if os.path.isdir(path)]
+            self.treatments = [self.treatment_mapping.get(os.path.basename(path), os.path.basename(path))
+                               for path in paths if os.path.isdir(path)]
 
             if not self.treatments:
                 print(f"Error: No valid directories found in the file {filepath}.")
             else:
                 print(f"Set treatments based on {filepath} successfully.")
+
+    def get_folder_name_from_path(self, file_path: str) -> str:
+        return os.path.basename(os.path.dirname(file_path))
+
+    def get_treatment_from_path(self, file_path: str) -> str:
+        folder_name = self.get_folder_name_from_path(file_path)
+        return self.treatment_mapping.get(folder_name, folder_name)
 
     def run(self):
 
@@ -152,10 +172,14 @@ class AudioProcessor:
             process.join()
 
     def process_treatment(self, treatment_dir_in_src: str, treatment_dir_in_features: str, file_count: int) -> None:
-
         wav_files = glob.glob(os.path.join(treatment_dir_in_src, '**/*.wav'), recursive=True)
         wav_files = wav_files[:file_count]  # Only take the first `file_count` files
         for counter, file_path in enumerate(wav_files, start=1):
+            if self.use_folder_structure:
+                folder_name = self.get_folder_name_from_path(file_path)
+                treatment_dir_in_features = os.path.join(treatment_dir_in_features, folder_name)
+                os.makedirs(treatment_dir_in_features, exist_ok=True)
+
             self.process_file(file_path, counter, treatment_dir_in_features)
 
     def process_file(self, file_path, counter, treatment_dir_features):
@@ -346,7 +370,6 @@ class AudioProcessor:
             # Assuming data is a dictionary where keys are dataset names and values are numpy arrays
             for key, value in data.items():
 
-
                 if isinstance(value, str):  # Check if the value is a string
                     encoded_value = value.encode('utf-8')  # Convert string to byte string
                     hf.create_dataset(key, data=np.array(encoded_value))
@@ -356,5 +379,6 @@ class AudioProcessor:
 
 if __name__ == '__main__':
     folder = filedialog.askdirectory()
-    audio = AudioProcessor('mel_spectrogram', folder)
+    audio = AudioProcessor('mfccs_and_derivatives', folder)
+    audio.select_file_with_paths()
     audio.run()
