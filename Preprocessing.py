@@ -143,10 +143,18 @@ class AudioProcessor:
             self.treatments = [self.treatment_mapping.get(os.path.basename(path), os.path.basename(path))
                                for path in paths if os.path.isdir(path)]
 
+            # Setting the source directory to the common parent directory of all paths
+            common_prefix = os.path.commonprefix(paths)
+            if os.path.isdir(common_prefix):
+                self.src_directory = common_prefix
+            else:
+                # Fall back to the directory containing the first path (this assumes all paths share a common directory)
+                self.src_directory = os.path.dirname(paths[0])
+
             if not self.treatments:
                 print(f"Error: No valid directories found in the file {filepath}.")
             else:
-                print(f"Set treatments based on {filepath} successfully.")
+                print(f"Set treatments and source directory based on {filepath} successfully.")
 
     def get_folder_name_from_path(self, file_path: str) -> str:
         return os.path.basename(os.path.dirname(file_path))
