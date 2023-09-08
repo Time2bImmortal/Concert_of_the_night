@@ -120,9 +120,9 @@ class AudioProcessor:
         return feature_directory
 
     def create_treatment_directories(self):
-
-        for treatment in self.treatments:
-            treatment_dir = os.path.join(self.features_dir, treatment)
+        # Creating only directories for the mapped treatments
+        for mapped_treatment in set(self.treatment_mapping.values()):
+            treatment_dir = os.path.join(self.features_dir, mapped_treatment)
             self.treatments_dir.append(treatment_dir)
             os.makedirs(treatment_dir, exist_ok=True)
 
@@ -180,7 +180,10 @@ class AudioProcessor:
         processes = []
         for i, treatment in enumerate(self.treatments):
             treatment_dir_in_src = os.path.join(self.src_directory, treatment)
-            treatment_dir_in_features = os.path.join(self.features_dir, treatment)
+            # Use the treatment mapping to determine the correct directory in the feature folder.
+            mapped_treatment = self.treatment_mapping.get(treatment, treatment)
+            treatment_dir_in_features = os.path.join(self.features_dir, mapped_treatment)
+
             process = multiprocessing.Process(
                 target=self.process_treatment,
                 args=(treatment_dir_in_src, treatment_dir_in_features, min_file_count,))
@@ -194,12 +197,13 @@ class AudioProcessor:
         wav_files = glob.glob(os.path.join(treatment_dir_in_src, '**/*.wav'), recursive=True)
         wav_files = wav_files[:file_count]  # Only take the first `file_count` files
         for counter, file_path in enumerate(wav_files, start=1):
+            target_directory = treatment_dir_in_features
             if self.use_folder_structure:
                 folder_name = self.get_folder_name_from_path(file_path)
-                treatment_dir_in_features = os.path.join(treatment_dir_in_features, folder_name)
-                os.makedirs(treatment_dir_in_features, exist_ok=True)
+                target_directory = os.path.join(treatment_dir_in_features, folder_name)
+                os.makedirs(target_directory, exist_ok=True)
 
-            self.process_file(file_path, counter, treatment_dir_in_features)
+            self.process_file(file_path, counter, target_directory)
 
     def process_file(self, file_path, counter, treatment_dir_features):
 
