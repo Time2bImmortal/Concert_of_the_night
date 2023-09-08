@@ -172,62 +172,14 @@ class AudioProcessor:
         self.features_dir = self.create_feature_directory()
         self.create_treatment_directories()
 
-        if os.path.isdir(self.src_directory):  # Checking if the source is a directory
-            self.handle_directory_source()
-        else:
-            self.handle_file_source()  # Handling paths from a file
-
-    def handle_directory_source(self):
-        # Calculate the minimum number of .wav files across all treatment directories
-        min_file_count = min(
-            len(glob.glob(os.path.join(self.src_directory, treatment, '**/*.wav'), recursive=True))
-            for treatment in self.treatments
-        )
-
+        treatment_to_directories = self.get_treatment_to_directories_map()
         processes = []
-        for i, treatment in enumerate(self.treatments):
-            treatment_dir_in_src = os.path.join(self.src_directory, treatment)
-            mapped_treatment = self.treatment_mapping.get(treatment, treatment)
-            treatment_dir_in_features = os.path.join(self.features_dir, mapped_treatment)
 
+        for mapped_treatment, directories in treatment_to_directories.items():
+            treatment_dir_in_features = os.path.join(self.features_dir, mapped_treatment)
             process = multiprocessing.Process(
                 target=self.process_treatment,
-                args=(treatment_dir_in_src, treatment_dir_in_features, min_file_count,))
-            process.start()
-            processes.append(process)
-
-        for process in processes:
-            process.join()
-
-    def handle_file_source(self):
-        folder_map = {}
-        file_map = collections.defaultdict(list)
-
-        with open(self.src_directory, 'r') as file:
-            paths = [line.strip() for line in file]
-            for path in paths:
-                # Check if the path is a folder or a file
-                if path.endswith('.wav'):
-                    folder_name = self.get_folder_name_from_path(path)
-                    treatment = folder_map.get(folder_name)
-                    if not treatment:
-                        print(f"Warning: Couldn't find treatment for file: {path}. Skipping...")
-                        continue
-                    mapped_treatment = self.treatment_mapping.get(treatment, treatment)
-                    file_map[mapped_treatment].append(path)
-                else:
-                    treatment = self.get_treatment_from_path(path)
-                    mapped_treatment = self.treatment_mapping.get(treatment, treatment)
-                    folder_map[path] = mapped_treatment
-
-        processes = []
-        for treatment, file_paths in file_map.items():
-            treatment_dir_in_features = os.path.join(self.features_dir, treatment)
-            os.makedirs(treatment_dir_in_features, exist_ok=True)
-
-            process = multiprocessing.Process(
-                target=self.process_files_for_treatment_from_file,
-                args=(file_paths, treatment_dir_in_features))
+                args=(directories, treatment_dir_in_features))
             process.start()
             processes.append(process)
 
@@ -243,17 +195,16 @@ class AudioProcessor:
             # Assuming process_file function is already available and it processes each file
             self.process_file(file_path, folder_dir_in_features)
 
-    def process_treatment(self, treatment_dir_in_src: str, treatment_dir_in_features: str, file_count: int) -> None:
-        wav_files = glob.glob(os.path.join(treatment_dir_in_src, '**/*.wav'), recursive=True)
-        wav_files = wav_files[:file_count]  # Only take the first `file_count` files
-        for counter, file_path in enumerate(wav_files, start=1):
-            target_directory = treatment_dir_in_features
-            if self.use_folder_structure:
-                folder_name = self.get_folder_name_from_path(file_path)
-                target_directory = os.path.join(treatment_dir_in_features, folder_name)
-                os.makedirs(target_directory, exist_ok=True)
-
-            self.process_file(file_path, counter, target_directory)
+    def process_treatment(self, treatment_directories, treatment_dir_in_features) -> None:
+        for treatment_dir_in_src in treatment_directories:
+            wav_files = glob.glob(os.path.join(treatment_dir_in_src, '**/*.wav'), recursive=True)
+            for file_path in wav_files:
+                target_directory = treatment_dir_in_features
+                if self.use_folder_structure:
+                    folder_name = self.get_folder_name_from_path(file_path)
+                    target_directory = os.path.join(treatment_dir_in_features, folder_name)
+                    os.makedirs(target_directory, exist_ok=True)
+                self.process_file(file_path, target_directory)
 
     def process_file(self, file_path, counter, treatment_dir_features):
 
