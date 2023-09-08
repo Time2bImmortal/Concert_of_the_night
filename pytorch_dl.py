@@ -74,16 +74,26 @@ def compute_mean_std(loader):
 
 
 class CustomDataset(Dataset):
-    def __init__(self, file_paths, labels=None, mean=None, std=None):
+    def __init__(self, file_paths, labels=None, mean=None, std=None, shuffle_labels=True):
         self.file_paths = file_paths
         self.mean = mean
         self.std = std
-        # Initialize and fit the label encoder using provided labels
         self.label_encoder = labels
+        self.shuffle_labels = shuffle_labels
+
+        # Extract all labels first if shuffle_labels is True
+        if self.shuffle_labels:
+            all_labels = []
+            for path in self.file_paths:
+                with h5py.File(path, 'r') as h5_file:
+                    all_labels.extend([h5_file['labels'][0]] * 30)  # repeating the label 30 times for each file
+            # Shuffle the extracted labels
+            random.shuffle(all_labels)
+            self.shuffled_labels = all_labels
 
         # Dynamically determine the number of MFCCs using the first file
         with h5py.File(self.file_paths[0], 'r') as h5_file:
-            mfcc_data = h5_file['mfcc'][:]
+            mfcc_data = h5_file['mfccs_and_derivatives'][:]
         self.mfccs_per_file = len(mfcc_data)
 
     def __len__(self):
@@ -95,8 +105,11 @@ class CustomDataset(Dataset):
         mfcc_idx = idx % self.mfccs_per_file
 
         with h5py.File(self.file_paths[file_idx], 'r') as h5_file:
-            mfcc_data = h5_file['mfcc'][mfcc_idx]
-            label_data = h5_file['labels'][0]  # assuming 'labels' dataset exists and you need the first element
+            mfcc_data = h5_file['mfccs_and_derivatives'][mfcc_idx]
+            if self.shuffle_labels:
+                label_data = self.shuffled_labels[idx]
+            else:
+                label_data = h5_file['labels'][0]
 
         # Transform the label using the already fitted label_encoder
         if self.label_encoder is not None:
@@ -120,7 +133,7 @@ class CustomDataset(Dataset):
 
 
 class CustomDataLoader:
-    def __init__(self, folder_path, num_files_per_treatment=300, min_file_size=3600000, max_file_size=4600000,
+    def __init__(self, folder_path, num_files_per_treatment=150, min_file_size=20000000, max_file_size=30000000,
                  file_extension='.h5', test_size=0.1):
         self.folder_path = folder_path
         self.num_files_per_treatment = num_files_per_treatment
@@ -241,29 +254,21 @@ class MFCC_CNN(nn.Module):
         super(MFCC_CNN, self).__init__()
 
         # Convolution layers
-        # self.conv1 = nn.Conv2d(1, 32, kernel_size=(5, 10), stride=1, padding=(2, 5))
-        # self.bn1 = nn.BatchNorm2d(32)  # Batch Normalization after conv1
-        # self.dropout_conv1 = nn.Dropout(0.5)
-        # self.conv2 = nn.Conv2d(32, 64, kernel_size=(5, 10), stride=1, padding=(2, 5))
-        # self.bn2 = nn.BatchNorm2d(64)  # Batch Normalization after conv2
-        # self.dropout_conv2 = nn.Dropout(0.5)
-        # self.conv3 = nn.Conv2d(64, 128, kernel_size=(5, 10), stride=1, padding=(2, 5))
-        # self.bn3 = nn.BatchNorm2d(128)  # Batch Normalization after conv3
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=(2, 17), stride=1, padding=(1, 8))
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=(5, 10), stride=1, padding=(2, 5))
         self.bn1 = nn.BatchNorm2d(32)  # Batch Normalization after conv1
         self.dropout_conv1 = nn.Dropout(0.5)
-
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=(2, 17), stride=1, padding=(1, 8))
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=(5, 10), stride=1, padding=(2, 5))
         self.bn2 = nn.BatchNorm2d(64)  # Batch Normalization after conv2
         self.dropout_conv2 = nn.Dropout(0.5)
-
-        self.conv3 = nn.Conv2d(64, 128, kernel_size=(2, 17), stride=1, padding=(1, 8))
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=(5, 10), stride=1, padding=(2, 5))
         self.bn3 = nn.BatchNorm2d(128)  # Batch Normalization after conv3
+
         # Max pooling layer
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
 
         # Compute the output size after convolution and pooling layers to use in the FC layer
-        self.fc_input_dim = self._get_conv_output((1, 13, 2584))
+        # self.fc_input_dim = self._get_conv_output((1, 39, 2584))
+        self.fc_input_dim = self._get_conv_output((1, 39, 2584))
         # self.attention = SelfAttention(self.fc_input_dim, attention_dim=128)
         # Fully connected layers
         # self.fc1 = nn.Linear(128, 512)
@@ -502,8 +507,8 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     # labels_encoding = ['2lux', '5lux', 'LL', 'LD']
     labels_encoding = ['0', '1', '2', '3']
-    BATCH_SIZE = 24
-    NUM_FILES = 362
+    BATCH_SIZE = 18
+    NUM_FILES = 175
     folder_path = filedialog.askdirectory()
     logging.info(f"The path: {folder_path} is going to be treated now.")
 

@@ -85,7 +85,7 @@ class AudioExplorer:
 
 class AudioProcessor:
     def __init__(self, feature: str, src_directory,
-                 n_mfcc=13, frame_size=2048, hop_length=1024, num_segments=30):
+                 n_mfcc=128, frame_size=2048, hop_length=1024, num_segments=30):
 
         self.feature = feature
         self.src_directory = src_directory
@@ -97,34 +97,6 @@ class AudioProcessor:
         self.treatments = os.listdir(src_directory)
         self.treatments_dir = []
         self.features_dir = None
-
-    def save_mfcc_plot_for_file(self, signal, sr, file_path):
-        """
-        Create a folder and save an MFCC plot for the entire signal.
-        """
-
-        # Create a directory to save plots if it doesn't exist
-        if not os.path.exists('MFCC_Plots'):
-            os.makedirs('MFCC_Plots')
-
-        # Extract MFCCs
-        feature_vectors = self.extract_feature(signal, sr)
-
-        # Save the MFCC plot for the file
-        self.save_mfcc_plot(feature_vectors, sr, file_path)
-
-    def save_mfcc_plot(self, mfccs, sr, file_path):
-        plt.figure(figsize=(10, 4))
-        librosa.display.specshow(mfccs, x_axis='time', sr=sr, hop_length=self.hop_length)
-        plt.colorbar()
-        plt.ylabel('MFCC Coefficients')
-        plt.xlabel('Time (seconds)')
-        plt.title(f'MFCC for {os.path.basename(file_path)}')
-        plt.tight_layout()
-
-        # Save the plot with the filename as its name
-        plt.savefig(os.path.join('MFCC_Plots', f"{os.path.basename(file_path)}.png"))
-        plt.close()
 
     def create_feature_directory(self):
 
@@ -138,6 +110,22 @@ class AudioProcessor:
             treatment_dir = os.path.join(self.features_dir, treatment)
             self.treatments_dir.append(treatment_dir)
             os.makedirs(treatment_dir, exist_ok=True)
+
+    def set_treatments_from_textfile(self, filepath):
+        """Set treatments based on paths provided in a text file."""
+        if not os.path.exists(filepath):
+            print(f"Error: The file {filepath} does not exist.")
+            return
+
+        with open(filepath, 'r') as file:
+            paths = [line.strip() for line in file]
+            # Filter valid directories and assign to treatments
+            self.treatments = [os.path.basename(path) for path in paths if os.path.isdir(path)]
+
+            if not self.treatments:
+                print(f"Error: No valid directories found in the file {filepath}.")
+            else:
+                print(f"Set treatments based on {filepath} successfully.")
 
     def run(self):
 
@@ -172,15 +160,14 @@ class AudioProcessor:
 
     def process_file(self, file_path, counter, treatment_dir_features):
 
-        filename, subfolder, treatment, dict_data = self.get_directory_info(file_path)
+        filename, treatment, dict_data = self.get_directory_info(file_path)
         print(filename, "is being processed in", treatment)
-        h5_file_return = self.create_h5_file(filename, counter, subfolder, treatment_dir_features)
+        h5_file_return = self.create_h5_file(filename, counter, treatment_dir_features)
         if h5_file_return is None:
             print(f"Skipping file {file_path} as it already exists.")
             return
         h5_file, h5_path = h5_file_return
         signal, sr = librosa.load(file_path, sr=44100)
-        self.save_mfcc_plot_for_file(signal, sr, file_path)
         num_samples_per_segment, expected_shape = self.get_expected_shape(signal, sr)
 
         for s in range(self.num_segments):
@@ -250,9 +237,9 @@ class AudioProcessor:
             return None
         return segment_signal
 
-    def create_h5_file(self, filename, counter, subfolder, treatment_dir_features):
+    def create_h5_file(self, filename, counter, treatment_dir_features):
 
-        h5_file = filename.replace(filename, f"{str(counter).zfill(5)}_{subfolder}_{self.feature}.h5")
+        h5_file = filename.replace(filename, f"{str(counter).zfill(5)}_{self.feature}.h5")
         h5_path = os.path.join(treatment_dir_features, h5_file)
         if os.path.isfile(h5_path):
             print(f"'{h5_file}' file already exists in {treatment_dir_features}. Skipping this file.")
@@ -273,16 +260,14 @@ class AudioProcessor:
         relative_path = os.path.relpath(file_path, self.src_directory)
         parts = relative_path.split(os.path.sep)
         treatment = parts[0] if len(parts) > 1 else None
-        subfolder = parts[1] if len(parts) > 2 else None
         dict_data = {
             "path": file_path,
-            "subfolder_name": subfolder,
             "filename": filename,
             self.feature: [],
             "labels": [],
             "segment_number": []
         }
-        return filename, subfolder, treatment, dict_data
+        return filename, treatment, dict_data
 
     def get_expected_shape(self, signal, sr):
 
@@ -294,6 +279,8 @@ class AudioProcessor:
             expected_shape = (self.n_mfcc, math.ceil(num_samples_per_segment / self.hop_length))
         elif self.feature in ["ae", "rms", "zcr", "ber", 'sc', 'bw']:
             expected_shape = (1, math.ceil(num_samples_per_segment / self.hop_length))
+        elif self.feature in ['mfccs_and_derivatives']:
+            expected_shape = (self.n_mfcc*3, math.ceil(num_samples_per_segment / self.hop_length))
         else:
             raise ValueError(f"Unsupported feature: {self.feature}")
 
@@ -304,12 +291,13 @@ class AudioProcessor:
         if self.feature == "mfcc":
             return librosa.feature.mfcc(y=signal, n_fft=self.frame_size, n_mfcc=self.n_mfcc, hop_length=self.hop_length,
                                         sr=sr)
-        elif self.feature == "mfccandderived":
+        elif self.feature == "mfccs_and_derivatives":
             mfccs = librosa.feature.mfcc(y=signal, n_fft=self.frame_size, n_mfcc=self.n_mfcc,
                                          hop_length=self.hop_length, sr=sr)
 
             mfcc_delta = librosa.feature.delta(mfccs)
-            combined = np.vstack([mfccs, mfcc_delta])
+            mfcc_delta2 = librosa.feature.delta(mfccs, order=2)
+            combined = np.vstack([mfccs, mfcc_delta, mfcc_delta2])
             return combined
         elif self.feature == "spectrogram":
             S_complex = librosa.stft(signal, hop_length=self.hop_length, n_fft=self.frame_size)
@@ -318,7 +306,9 @@ class AudioProcessor:
             return log_spectrogram
         elif self.feature == "mel_spectrogram":
             S = librosa.feature.melspectrogram(y=signal, sr=sr)
-            return S
+            S_dB = librosa.power_to_db(S, ref=np.max)
+
+            return S_dB
         elif self.feature == "ae":
             amplitude_envelope = []
             for i in range(0, len(signal), self.hop_length):
@@ -355,8 +345,16 @@ class AudioProcessor:
         with h5py.File(filename, 'w') as hf:
             # Assuming data is a dictionary where keys are dataset names and values are numpy arrays
             for key, value in data.items():
-                hf.create_dataset(key, data=np.array(value))
+
+
+                if isinstance(value, str):  # Check if the value is a string
+                    encoded_value = value.encode('utf-8')  # Convert string to byte string
+                    hf.create_dataset(key, data=np.array(encoded_value))
+                else:
+                    hf.create_dataset(key, data=np.array(value))
+
+
 if __name__ == '__main__':
     folder = filedialog.askdirectory()
-    audio = AudioProcessor('mfcc', folder)
+    audio = AudioProcessor('mel_spectrogram', folder)
     audio.run()

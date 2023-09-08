@@ -94,16 +94,7 @@ def write_gz_json(json_obj, filename):
 
 
 def open_and_show_gz_file():
-    """Displays the contents of a gzip file selected by the user.
 
-    This function opens a dialog box to allow the user to select a gzip file (*.gz).
-    Once a file is selected, its contents are read and displayed on the console.
-
-    Raises:
-        FileNotFoundError: If the selected file is not found.
-        gzip.BadGzipFile: If the selected file is not a valid .gz file.
-        Exception: If any other error occurs during the file reading process.
-       """
     file = filedialog.askopenfile(filetypes=[('GZ files', '*.gz')])
     if file is None:
         print("No file selected.")
@@ -121,35 +112,14 @@ def open_and_show_gz_file():
 
 
 def get_samplerate(audio_file_path):
-    """Return the sample rate of an audio file.
 
-    Args:
-        audio_file_path (str): The path of the audio file.
-
-    Returns:
-        int: The sample rate of the audio file.
-
-    Note:
-        The 'soundfile' library is used to read audio files. Make sure it is installed before calling this function.
-    """
     data, samplerate = sf.read(audio_file_path)
     print(f'The file has a samplerate of: {samplerate}')
     return samplerate
 
 
 def display_waveform(signal, sr):
-    """ Display the waveform of a signal
 
-    Args:
-        signal(ndarray): The signal array
-        sr(int): signal sampling rate
-
-    Returns:
-        plot
-
-    Note:
-        The 'librosa' library and matplotlib.pyplot are used. Make sure they are installed before calling this function.
-    """
     plt.figure()
     librosa.display.waveshow(signal, sr=sr)
     plt.xlabel('Time')
@@ -372,7 +342,7 @@ def plot_mfcc_from_h5(sample_rate=44100, frame_size=2048, hop_length=1024):
         return
 
     with h5py.File(file_path, 'r') as f:
-        mfccs = f['mfcc'][:]
+        mfccs = f['mel_spectrogram'][:]
 
     num_segments = mfccs.shape[0]
     num_frames = mfccs.shape[2]
