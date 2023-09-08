@@ -165,12 +165,19 @@ class AudioProcessor:
 
     def run(self):
         if not self.src_directory:
-            print("Error: No source directory set. Please use select_directory_with_paths first.")
+            print(
+                "Error: No source directory set. Please use select_directory_with_paths or select_file_with_paths first.")
             return
 
         self.features_dir = self.create_feature_directory()
         self.create_treatment_directories()
 
+        if os.path.isdir(self.src_directory):  # Checking if the source is a directory
+            self.handle_directory_source()
+        else:
+            self.handle_file_source()  # Handling paths from a file
+
+    def handle_directory_source(self):
         # Calculate the minimum number of .wav files across all treatment directories
         min_file_count = min(
             len(glob.glob(os.path.join(self.src_directory, treatment, '**/*.wav'), recursive=True))
@@ -180,7 +187,6 @@ class AudioProcessor:
         processes = []
         for i, treatment in enumerate(self.treatments):
             treatment_dir_in_src = os.path.join(self.src_directory, treatment)
-            # Use the treatment mapping to determine the correct directory in the feature folder.
             mapped_treatment = self.treatment_mapping.get(treatment, treatment)
             treatment_dir_in_features = os.path.join(self.features_dir, mapped_treatment)
 
@@ -192,6 +198,48 @@ class AudioProcessor:
 
         for process in processes:
             process.join()
+
+    def handle_file_source(self):
+        folder_map = {}
+        file_map = defaultdict(list)
+
+        with open(self.src_directory, 'r') as file:
+            paths = [line.strip() for line in file]
+            for path in paths:
+                # Check if the path is a folder or a file
+                if path.endswith('.wav'):
+                    folder_name = self.get_folder_name_from_path(path)
+                    treatment = folder_map.get(folder_name)
+                    if not treatment:
+                        print(f"Warning: Couldn't find treatment for file: {path}. Skipping...")
+                        continue
+                    file_map[treatment].append(path)
+                else:
+                    treatment = self.get_treatment_from_path(path)
+                    folder_map[path] = treatment
+
+        processes = []
+        for treatment, file_paths in file_map.items():
+            treatment_dir_in_features = os.path.join(self.features_dir, treatment)
+            os.makedirs(treatment_dir_in_features, exist_ok=True)
+
+            process = multiprocessing.Process(
+                target=self.process_files_for_treatment_from_file,
+                args=(file_paths, treatment_dir_in_features))
+            process.start()
+            processes.append(process)
+
+        for process in processes:
+            process.join()
+
+    def process_files_for_treatment_from_file(self, file_paths: List[str], treatment_dir_in_features: str):
+        for file_path in file_paths:
+            folder_name = self.get_folder_name_from_path(file_path)
+            folder_dir_in_features = os.path.join(treatment_dir_in_features, folder_name)
+            os.makedirs(folder_dir_in_features, exist_ok=True)
+
+            # Assuming process_file function is already available and it processes each file
+            self.process_file(file_path, folder_dir_in_features)
 
     def process_treatment(self, treatment_dir_in_src: str, treatment_dir_in_features: str, file_count: int) -> None:
         wav_files = glob.glob(os.path.join(treatment_dir_in_src, '**/*.wav'), recursive=True)
