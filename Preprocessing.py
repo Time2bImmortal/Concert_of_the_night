@@ -84,17 +84,17 @@ class AudioExplorer:
 
 
 class AudioProcessor:
-    def __init__(self, feature: str, src_directory,
+    def __init__(self, feature: str,
                  n_mfcc=13, frame_size=2048, hop_length=1024, num_segments=30, use_folder_structure=True):
 
         self.feature = feature
-        self.src_directory = src_directory
+        self.src_directory = None
         self.file_extension = ".h5"
         self.n_mfcc = n_mfcc
         self.frame_size = frame_size
         self.hop_length = hop_length
         self.num_segments = num_segments
-        self.treatments = os.listdir(src_directory)
+        self.treatments = None
         self.treatments_dir = []
         self.features_dir = None
         self.use_folder_structure = use_folder_structure
@@ -104,6 +104,14 @@ class AudioProcessor:
             'ALAN5': '5lux',
             'ALAN2': '2lux'
         }
+
+    def select_directory_with_paths(self):
+        root = tk.Tk()
+        root.withdraw()  # Hide the main window
+        dirpath = filedialog.askdirectory(title="Select the source directory")
+        if dirpath:
+            self.src_directory = dirpath
+            self.treatments = os.listdir(dirpath)
 
     def create_feature_directory(self):
 
@@ -148,6 +156,9 @@ class AudioProcessor:
         return self.treatment_mapping.get(folder_name, folder_name)
 
     def run(self):
+        if not self.src_directory:
+            print("Error: No source directory set. Please use select_directory_with_paths first.")
+            return
 
         self.features_dir = self.create_feature_directory()
         self.create_treatment_directories()
@@ -378,7 +389,7 @@ class AudioProcessor:
 
 
 if __name__ == '__main__':
-    folder = filedialog.askdirectory()
-    audio = AudioProcessor('mfccs_and_derivatives', folder)
+
+    audio = AudioProcessor('mfccs_and_derivatives')
     audio.select_file_with_paths()
     audio.run()
