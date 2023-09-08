@@ -201,7 +201,7 @@ class AudioProcessor:
 
     def handle_file_source(self):
         folder_map = {}
-        file_map = defaultdict(list)
+        file_map = collections.defaultdict(list)
 
         with open(self.src_directory, 'r') as file:
             paths = [line.strip() for line in file]
@@ -213,10 +213,12 @@ class AudioProcessor:
                     if not treatment:
                         print(f"Warning: Couldn't find treatment for file: {path}. Skipping...")
                         continue
-                    file_map[treatment].append(path)
+                    mapped_treatment = self.treatment_mapping.get(treatment, treatment)
+                    file_map[mapped_treatment].append(path)
                 else:
                     treatment = self.get_treatment_from_path(path)
-                    folder_map[path] = treatment
+                    mapped_treatment = self.treatment_mapping.get(treatment, treatment)
+                    folder_map[path] = mapped_treatment
 
         processes = []
         for treatment, file_paths in file_map.items():
