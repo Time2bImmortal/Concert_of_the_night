@@ -195,6 +195,27 @@ class AudioProcessor:
             # Assuming process_file function is already available and it processes each file
             self.process_file(file_path, folder_dir_in_features)
 
+    def get_treatment_to_directories_map(self):
+        treatment_to_directories = collections.defaultdict(list)
+
+        if os.path.isdir(self.src_directory):
+            # If it's a directory, loop through each treatment directory.
+            for treatment in self.treatments:
+                treatment_dir = os.path.join(self.src_directory, treatment)
+                # Check for mapped treatment
+                mapped_treatment = self.treatment_mapping.get(treatment, treatment)
+                treatment_to_directories[mapped_treatment].append(treatment_dir)
+        else:
+            with open(self.src_directory, 'r') as file:
+                paths = [line.strip() for line in file]
+                for path in paths:
+                    if not path.endswith('.wav'):
+                        treatment = self.get_treatment_from_path(path)
+                        mapped_treatment = self.treatment_mapping.get(treatment, treatment)
+                        treatment_to_directories[mapped_treatment].append(path)
+
+        return treatment_to_directories
+
     def process_treatment(self, treatment_directories, treatment_dir_in_features) -> None:
         for treatment_dir_in_src in treatment_directories:
             wav_files = glob.glob(os.path.join(treatment_dir_in_src, '**/*.wav'), recursive=True)
