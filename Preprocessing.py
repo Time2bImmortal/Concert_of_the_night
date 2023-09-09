@@ -1,20 +1,13 @@
 import os
 import librosa
 import librosa.display
-import matplotlib.pyplot as plt
-import soundfile as sf
 import numpy as np
-import json
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import math
-import collections
-import shutil
-from typing import List
 from multiprocessing import Process
-import glob
-from typing import Tuple
-import supporting_functions
+import warnings
+warnings.filterwarnings("ignore", message="loaded more than 1 DLL from .libs:")
 import h5py
 
 class PathManager:
@@ -25,7 +18,7 @@ class PathManager:
         self.valid_extension = '.wav'
         self.threshold = 0.01
         self.above_threshold_duration = 300
-        self.required_num_files = 20
+        self.required_num_files = 15
         self.feature_to_extract = 'mfccs_and_derivatives'
         self.treatment_mapping = {
             "Gb12": "LD",
@@ -80,12 +73,24 @@ class PathManager:
 
     def find_valid_folders(self, file):
         for root, _, files in os.walk(self.source):
+
+            # First check: Are there enough files in the folder to start with?
+            if len(files) < self.required_num_files:
+                continue
+
+            valid_files_paths = []
             for file_name in files:
                 full_path = os.path.join(root, file_name)
+
+                # Check if each file is valid by extension, size, and audio content
                 if (file_name.lower().endswith(self.valid_extension) and
                         self._check_file_size(full_path) and
                         self._is_valid_audio(full_path)):
-                    file.write(full_path + '\n')
+                    valid_files_paths.append(full_path)
+
+            if len(valid_files_paths) >= self.required_num_files:
+                for valid_path in valid_files_paths:
+                    file.write(valid_path + '\n')
 
     def _read_paths_from_file(self, filepath):
         with open(filepath, 'r') as file:

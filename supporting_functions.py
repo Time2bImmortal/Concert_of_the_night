@@ -12,42 +12,6 @@ import random
 import h5py
 
 
-def extract_subfolder_from_filename(filename):
-    parts = filename.split('_')
-    if len(parts) > 1:
-        return parts[1]
-    return None
-
-
-def get_file_info(folder_path):
-    file_info = {}
-    subfolders = set()
-    for root, dirs, files in os.walk(folder_path):
-        for file in files:
-            if file.endswith('.gz'):
-                subfolder = extract_subfolder_from_filename(file)
-                if subfolder:
-                    subfolders.add(subfolder)
-                    file_path = os.path.join(root, file)
-                    with gzip.open(file_path, 'rt') as f:
-                        dict_data = json.load(f)
-                        filename = dict_data["filename"]
-                        key = f"{subfolder}/{filename}"
-                        file_info[key] = file_path
-    return file_info, subfolders
-
-
-def get_train_subfolders(train_folder):
-    subfolders = set()
-    for root, dirs, files in os.walk(train_folder):
-        for file in files:
-            if file.endswith('.gz'):
-                subfolder = extract_subfolder_from_filename(file)
-                if subfolder:
-                    subfolders.add(subfolder)
-    return subfolders
-
-
 def delete_common_files(train_folder, test_folder):
     train_subfolders = get_train_subfolders(train_folder)
 
@@ -85,32 +49,6 @@ def delete_common_files(train_folder, test_folder):
                                         print(f"Error deleting {test_file_path}: {e}")
 
 
-def write_gz_json(json_obj, filename):
-    json_str = json.dumps(json_obj) + "\n"
-    json_bytes = json_str.encode('utf-8')
-
-    with gzip.GzipFile(filename, 'w') as fout:
-        fout.write(json_bytes)
-
-
-def open_and_show_gz_file():
-
-    file = filedialog.askopenfile(filetypes=[('GZ files', '*.gz')])
-    if file is None:
-        print("No file selected.")
-        return
-    try:
-        with gzip.open(file.name, 'rt') as gz_file:
-            content = gz_file.read()
-            print(content)
-    except FileNotFoundError:
-        print("File not found.")
-    except gzip.BadGzipFile:
-        print("Invalid .gz file.")
-    except Exception as e:
-        print("An error occurred:", str(e))
-
-
 def get_samplerate(audio_file_path):
 
     data, samplerate = sf.read(audio_file_path)
@@ -127,33 +65,6 @@ def display_waveform(signal, sr):
     plt.title('Waveform')
     plt.show()
 
-
-def save_and_compare_audio(filename):
-    # Load the audio file
-    signal, sr = librosa.load(filename)
-
-    # Save the audio data to a json file
-    json_filename = filename.replace('.wav', '.json')
-    with open(json_filename, 'w') as json_file:
-        json.dump(signal.tolist(), json_file)
-
-    # Save the audio data to a gzipped json file
-    gz_filename = filename.replace('.wav', '.gz')
-    write_gz_json(signal.tolist(), gz_filename)
-
-    # Load the json data
-    with open(json_filename, 'r') as json_file:
-        json_data = np.array(json.load(json_file))
-
-    # Load the gzipped json data
-    with gzip.GzipFile(gz_filename, 'r') as gz_file:
-        gz_data = np.array(json.loads(gz_file.read().decode('utf-8')))
-
-    # Compare the two data arrays
-    if np.array_equal(json_data, gz_data):
-        print("The two files contain identical data.")
-    else:
-        print("The two files do not contain identical data.")
 
 def copy_missing_wav_files(treatment_mapping):
 
@@ -211,7 +122,6 @@ def copy_missing_wav_files(treatment_mapping):
 
     print(f"Copying from {src_folder} to {dest_folder} completed.")
 
-# copy_missing_wav_files(treatment_mapping)
 
 def copy_files_not_in_source(num_files, treatment_mapping):
     """
@@ -273,61 +183,6 @@ def copy_files_not_in_source(num_files, treatment_mapping):
     print(f"Copying from {complete_folder} to {test_folder} completed.")
 
 
-def convert_gzip_to_hdf5():
-    # Create a tkinter root window and immediately hide it
-    root = Tk()
-    root.withdraw()
-
-    # Ask the user to choose a folder
-    folder_path = filedialog.askdirectory(title="Choose the folder containing gzip files")
-    if not folder_path:
-        print("No folder selected!")
-        return
-
-    output_folder = folder_path + '-h5py'
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder)
-
-    # Walk through the chosen folder and its nested structure
-    for dirpath, dirnames, filenames in os.walk(folder_path):
-        for filename in filenames:
-            if filename.endswith(".gz"):
-                gzip_path = os.path.join(dirpath, filename)
-
-                # Extract the relative path
-                relative_path = os.path.relpath(gzip_path, folder_path)
-
-                # Determine the output path
-                hdf5_path = os.path.join(output_folder, relative_path.replace('.gz', '.h5'))
-
-                # Ensure the directory exists
-                os.makedirs(os.path.dirname(hdf5_path), exist_ok=True)
-
-                # Load JSON from gzip and save it to HDF5
-                with gzip.open(gzip_path, 'rt') as gz_file:
-                    data = json.load(gz_file)
-                    with h5py.File(hdf5_path, 'w') as hf:
-                        for key, value in data.items():
-                            # Check if the value is a list or array-like
-                            if isinstance(value, list) or isinstance(value, dict):
-                                hf.create_dataset(key, data=value, compression="gzip")
-                            else:
-                                hf.create_dataset(key, data=value)
-
-    print(f"Converted gzip files in {folder_path} to HDF5 files in {output_folder}.")
-
-# def delete_gz_files():
-#     """
-#     Delete all files with .gz extension in the given directory and its sub-directories.
-#     """
-#     directory = filedialog.askdirectory()
-#     for root, _, files in os.walk(directory):
-#         for file in files:
-#             if file.endswith('.gz'):
-#                 file_path = os.path.join(root, file)
-#                 os.remove(file_path)
-#                 print(f"Deleted: {file_path}")
-# convert_gzip_to_hdf5()
 def plot_mfcc_from_h5(sample_rate=44100, frame_size=2048, hop_length=1024):
     frame_length_sec = frame_size / sample_rate
     hop_length_sec = hop_length / sample_rate
@@ -371,7 +226,7 @@ def process_treatment(audio_processor, treatment):
 
 def process_audio_interactive(full=False):
     # Prompt the user to choose a file
-    root = tk.Tk()
+    root = Tk()
     root.withdraw()
     filename = filedialog.askopenfilename()
 
@@ -418,5 +273,3 @@ class AudioExplorer:
             self.current_time -= self.duration
 
         self.display_waveform()
-
-# plot_mfcc_from_h5()
