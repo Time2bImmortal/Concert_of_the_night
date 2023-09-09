@@ -114,7 +114,7 @@ class PathManager:
         processes = []
         for key, treatment in self.treatment_mapping.items():
             treatment_folder = os.path.join(feature_folder, treatment)
-            paths_for_treatment = [path for path in self.paths if key in os.path.basename(path)]
+            paths_for_treatment = [path for path in self.paths if key in os.path.dirname(path)]
 
             # Creating an instance of AudioProcessor for each process
             audio_processor_instance = AudioProcessor(feature=self.feature_to_extract)
