@@ -361,6 +361,62 @@ def plot_mfcc_from_h5(sample_rate=44100, frame_size=2048, hop_length=1024):
         plt.ylabel("MFCC Coefficients")
         plt.tight_layout()
         plt.show()
+def process_treatment(audio_processor, treatment):
+    treatment_dir = os.path.join(audio_processor.features_dir, treatment)
+    audio_files = audio_processor.audio_files_dict[treatment]
+    for file in audio_files:
+        print('file:', file)
+        audio_processor.process_file(file)
 
+
+def process_audio_interactive(full=False):
+    # Prompt the user to choose a file
+    root = tk.Tk()
+    root.withdraw()
+    filename = filedialog.askopenfilename()
+
+    if filename:
+        # Display the memory size of the file
+        print(f'The file size is: {os.path.getsize(filename)} bytes')
+
+        explorer = AudioExplorer(filename, full)
+        explorer.fig.canvas.mpl_connect('key_press_event', explorer.on_key)
+        explorer.display_waveform()
+        plt.show()
+    else:
+        print('No file selected.')
+
+
+class AudioExplorer:
+    def __init__(self, filename, full=False):
+        self.signal, self.sr = librosa.load(filename)
+        self.full = full
+        self.duration = 60 if not self.full else len(self.signal) / self.sr
+        self.current_time = 0
+        self.fig, self.ax = plt.subplots()
+
+    def display_waveform(self):
+
+        self.ax.clear()
+        if self.full:
+            librosa.display.waveshow(self.signal, sr=self.sr, ax=self.ax)
+            self.ax.set(title='Full Waveform', xlabel='Time (s)', ylabel='Amplitude')
+        else:
+            start_sample, end_sample = librosa.time_to_samples([self.current_time, self.current_time + self.duration], sr=self.sr)
+            segment = self.signal[start_sample:end_sample]
+            times = np.linspace(self.current_time, self.current_time + self.duration, num=segment.shape[0])
+            self.ax.plot(times, segment)
+            self.ax.set(title='Waveform', xlabel='Time (s)', ylabel='Amplitude')
+
+        self.fig.canvas.draw()
+
+    def on_key(self, event):
+
+        if event.key == 'right' and (self.current_time + 2 * self.duration) * self.sr < len(self.signal):
+            self.current_time += self.duration
+        elif event.key == 'left' and self.current_time >= self.duration:
+            self.current_time -= self.duration
+
+        self.display_waveform()
 
 # plot_mfcc_from_h5()

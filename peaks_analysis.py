@@ -88,54 +88,6 @@ def visualize_mfcc(y, sr, n_mfcc=13):
     plt.show()
 
 
-def check_file_size(file_path, min_size=0, max_size=float('inf')):
-    """Check if file size is within given limits."""
-    file_size = os.path.getsize(file_path)
-    return min_size <= file_size <= max_size
-
-
-def duration_above_amplitude_simple(y, sr, threshold):
-    """Calculate duration of samples above a given threshold."""
-    samples_above_threshold = np.sum(np.abs(y) > threshold)
-    return samples_above_threshold / sr
-
-
-def is_valid_audio(file_path, threshold=0.01):
-    """Check if audio file has sufficient duration above given amplitude threshold."""
-    y, sr = librosa.load(file_path, sr=None)
-    return duration_above_amplitude_simple(y, sr, threshold) >= 300
-
-
-def find_valid_folders(src_directory, min_size=0, max_size=float('inf')):
-    """Find folders with at least 20 valid .wav files and write their paths to a text file."""
-
-    output_file = os.path.join(os.path.dirname(src_directory), "valid_folders.txt")
-
-    with open(output_file, 'w') as file:
-        for root, _, files in os.walk(src_directory):
-            valid_files = [os.path.join(root, file_name) for file_name in files if
-                           file_name.lower().endswith('.wav') and
-                           check_file_size(os.path.join(root, file_name), min_size, max_size) and
-                           is_valid_audio(os.path.join(root, file_name))]
-
-            if len(valid_files) >= 20:
-                file.write(root + '\n')
-                for valid_file in valid_files:
-                    file.write(valid_file + '\n')
-                file.write('\n')  # Add an extra newline for clarity
-
-    print(f"Paths written to {output_file}.")
-
-
-def select_folder_and_process():
-    """Use a GUI dialog to select source folder and process."""
-    root = Tk()
-    root.withdraw()  # Hide the main window
-    src_directory = filedialog.askdirectory(title="Choose source folder")
-    if src_directory:
-        find_valid_folders(src_directory, min_size=1024, max_size=10 * 1024 * 1024)  # example size range 1KB to 10MB
-    else:
-        print("No folder selected.")
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)

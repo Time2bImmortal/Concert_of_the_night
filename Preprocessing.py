@@ -16,227 +16,130 @@ import glob
 from typing import Tuple
 import supporting_functions
 import h5py
-"""
-Here, we preprocess audio files that are already organized in a specific folder structure: 
-Folder > Treatments > Subfolders > Audio files.
 
-The main objective is to create condensed gzip files that contain the extracted sound features, along with the
-corresponding file name, subfolder, treatment, and format information."""
+class PathManager:
+    def __init__(self):
+        self.source = self.choose_source()
+        self.min_size = 100000000
+        self.max_size = 200000000
+        self.valid_extension = '.wav'
+        self.threshold = 0.01
+        self.above_threshold_duration = 300
+        self.required_num_files = 20
 
+        self.treatment_mapping = {
+            "Gb12": "LD",
+            "Gb24": "LL",
+            "ALAN5": "5lux",
+            "ALAN2": "2lux"
+        }
 
-def process_treatment(audio_processor, treatment):
-    treatment_dir = os.path.join(audio_processor.features_dir, treatment)
-    audio_files = audio_processor.audio_files_dict[treatment]
-    for file in audio_files:
-        print('file:', file)
-        audio_processor.process_file(file)
+        self.paths = self._fetch_paths()
 
+    def choose_source(self):
+        root = tk.Tk()
+        root.withdraw()  # Hide the main window
 
-def process_audio_interactive(full=False):
-    # Prompt the user to choose a file
-    root = tk.Tk()
-    root.withdraw()
-    filename = filedialog.askopenfilename()
+        # Ask user to choose either a file or a directory
+        file_or_directory = filedialog.askopenfilename(title="Select a file or directory",
+                                                       defaultextension=("Text Files", "*.txt"),
+                                                       filetypes=(("Text Files", "*.txt"),("All Files", "*.*")))
+        # If user closed or canceled, then ask for directory
+        if not file_or_directory:
+            file_or_directory = filedialog.askdirectory(title="Choose a directory")
 
-    if filename:
-        # Display the memory size of the file
-        print(f'The file size is: {os.path.getsize(filename)} bytes')
+        return file_or_directory
 
-        explorer = AudioExplorer(filename, full)
-        explorer.fig.canvas.mpl_connect('key_press_event', explorer.on_key)
-        explorer.display_waveform()
-        plt.show()
-    else:
-        print('No file selected.')
-
-
-class AudioExplorer:
-    def __init__(self, filename, full=False):
-        self.signal, self.sr = librosa.load(filename)
-        self.full = full
-        self.duration = 60 if not self.full else len(self.signal) / self.sr
-        self.current_time = 0
-        self.fig, self.ax = plt.subplots()
-
-    def display_waveform(self):
-
-        self.ax.clear()
-        if self.full:
-            librosa.display.waveshow(self.signal, sr=self.sr, ax=self.ax)
-            self.ax.set(title='Full Waveform', xlabel='Time (s)', ylabel='Amplitude')
+    def _fetch_paths(self):
+        if os.path.isdir(self.source):
+            self.find_valid_folders()
+            output_file = os.path.join(os.path.dirname(self.source), "valid_folders.txt")
+            return self._read_paths_from_file(output_file)
+        elif os.path.isfile(self.source):
+            return self._read_paths_from_file(self.source)
         else:
-            start_sample, end_sample = librosa.time_to_samples([self.current_time, self.current_time + self.duration], sr=self.sr)
-            segment = self.signal[start_sample:end_sample]
-            times = np.linspace(self.current_time, self.current_time + self.duration, num=segment.shape[0])
-            self.ax.plot(times, segment)
-            self.ax.set(title='Waveform', xlabel='Time (s)', ylabel='Amplitude')
+            raise ValueError("The provided source is neither a directory nor a valid file.")
 
-        self.fig.canvas.draw()
+    def _check_file_size(self, file_path):
+        file_size = os.path.getsize(file_path)
+        return self.min_size <= file_size <= self.max_size
 
-    def on_key(self, event):
+    def _duration_above_amplitude_simple(self, y, sr):
+        samples_above_threshold = np.sum(np.abs(y) > self.threshold)
+        return samples_above_threshold / sr
 
-        if event.key == 'right' and (self.current_time + 2 * self.duration) * self.sr < len(self.signal):
-            self.current_time += self.duration
-        elif event.key == 'left' and self.current_time >= self.duration:
-            self.current_time -= self.duration
+    def _is_valid_audio(self, file_path):
+        y, sr = librosa.load(file_path, sr=None)
+        return self._duration_above_amplitude_simple(y, sr) >= self.above_threshold_duration
 
-        self.display_waveform()
+    def find_valid_folders(self):
+        output_file = os.path.join(os.path.dirname(self.source), "valid_folders.txt")
+
+        with open(output_file, 'w') as file:
+            for root, _, files in os.walk(self.source):
+                valid_files = [os.path.join(root, file_name) for file_name in files if
+                               file_name.lower().endswith(self.valid_extension) and
+                               self._check_file_size(os.path.join(root, file_name)) and
+                               self._is_valid_audio(os.path.join(root, file_name))]
+
+                if len(valid_files) >= self.required_num_files:
+                    file.write(root + '\n')
+                    for valid_file in valid_files:
+                        file.write(valid_file + '\n')
+                    file.write('\n')  # Add an extra newline for clarity
+
+        print(f"Paths written to {output_file}.")
+
+    def _read_paths_from_file(self, filepath):
+        with open(filepath, 'r') as file:
+            paths = []
+            for line in file:
+                line = line.strip()
+                if os.path.isfile(line):
+                    paths.append(line)
+                elif os.path.isdir(line):
+                    paths.extend([os.path.join(line, file) for file in os.listdir(line) if file.endswith(self.valid_extension)])
+            return paths
+
+    def get_treatment(self, path):
+        base_name = os.path.basename(path).split('.')[0]  # Remove extension to get the name
+        return self.treatment_mapping.get(base_name, None)
+
+    def create_nested_folder(self, path):
+        treatment = self.get_treatment(path)
+        if not treatment:
+            print(f"Warning: No treatment found for {path}.")
+            return
+
+        nested_folder_path = os.path.join(os.path.dirname(path), treatment)
+        os.makedirs(nested_folder_path, exist_ok=True)  # Safely create nested directory
+
+        return nested_folder_path
+
+    def get_paths(self):
+        return self.paths
 
 
 class AudioProcessor:
-    def __init__(self, feature: str,
-                 n_mfcc=13, frame_size=2048, hop_length=1024, num_segments=30, use_folder_structure=True):
+    def __init__(self, feature: str):
 
         self.feature = feature
-        self.src_directory = None
-        self.file_extension = ".h5"
-        self.n_mfcc = n_mfcc
-        self.frame_size = frame_size
-        self.hop_length = hop_length
-        self.num_segments = num_segments
-        self.treatments = None
-        self.treatments_dir = []
-        self.features_dir = None
-        self.use_folder_structure = use_folder_structure
-        self.treatment_mapping = {
-            'Gb12': 'LD',
-            'Gb24': 'LL',
-            'ALAN5': '5lux',
-            'ALAN2': '2lux'
-        }
+        self.n_mfcc = 13
+        self.frame_size = 2048
+        self.hop_length = 1024
+        self.num_segments = 30
+        self.sample_rate = 44100
 
-    def select_directory_with_paths(self):
-        root = tk.Tk()
-        root.withdraw()  # Hide the main window
-        dirpath = filedialog.askdirectory(title="Select the source directory")
-        if dirpath:
-            self.src_directory = dirpath
-            self.treatments = os.listdir(dirpath)
-
-    def create_feature_directory(self):
-
-        feature_directory = os.path.join(os.path.dirname(self.src_directory), self.feature)
-        os.makedirs(feature_directory, exist_ok=True)
-        return feature_directory
-
-    def create_treatment_directories(self):
-        # Creating only directories for the mapped treatments
-        for mapped_treatment in set(self.treatment_mapping.values()):
-            treatment_dir = os.path.join(self.features_dir, mapped_treatment)
-            self.treatments_dir.append(treatment_dir)
-            os.makedirs(treatment_dir, exist_ok=True)
-
-    def select_file_with_paths(self):
-        root = tk.Tk()
-        root.withdraw()  # Hide the main window
-        filepath = filedialog.askopenfilename(title="Select the file with paths")
-        if filepath:
-            self.set_treatments_from_textfile(filepath)
-
-    def set_treatments_from_textfile(self, filepath):
-        if not os.path.exists(filepath):
-            print(f"Error: The file {filepath} does not exist.")
-            return
-
-        with open(filepath, 'r') as file:
-            paths = [line.strip() for line in file]
-            self.treatments = [self.treatment_mapping.get(os.path.basename(path), os.path.basename(path))
-                               for path in paths if os.path.isdir(path)]
-
-            # Setting the source directory to the common parent directory of all paths
-            common_prefix = os.path.commonprefix(paths)
-            if os.path.isdir(common_prefix):
-                self.src_directory = common_prefix
-            else:
-                # Fall back to the directory containing the first path (this assumes all paths share a common directory)
-                self.src_directory = os.path.dirname(paths[0])
-
-            if not self.treatments:
-                print(f"Error: No valid directories found in the file {filepath}.")
-            else:
-                print(f"Set treatments and source directory based on {filepath} successfully.")
-
-    def get_folder_name_from_path(self, file_path: str) -> str:
-        return os.path.basename(os.path.dirname(file_path))
-
-    def get_treatment_from_path(self, file_path: str) -> str:
-        folder_name = self.get_folder_name_from_path(file_path)
-        return self.treatment_mapping.get(folder_name, folder_name)
-
-    def run(self):
-        if not self.src_directory:
-            print(
-                "Error: No source directory set. Please use select_directory_with_paths or select_file_with_paths first.")
-            return
-
-        self.features_dir = self.create_feature_directory()
-        self.create_treatment_directories()
-
-        treatment_to_directories = self.get_treatment_to_directories_map()
-        processes = []
-
-        for mapped_treatment, directories in treatment_to_directories.items():
-            treatment_dir_in_features = os.path.join(self.features_dir, mapped_treatment)
-            process = multiprocessing.Process(
-                target=self.process_treatment,
-                args=(directories, treatment_dir_in_features))
-            process.start()
-            processes.append(process)
-
-        for process in processes:
-            process.join()
-
-    def process_files_for_treatment_from_file(self, file_paths: List[str], treatment_dir_in_features: str):
-        for file_path in file_paths:
-            folder_name = self.get_folder_name_from_path(file_path)
-            folder_dir_in_features = os.path.join(treatment_dir_in_features, folder_name)
-            os.makedirs(folder_dir_in_features, exist_ok=True)
-
-            # Assuming process_file function is already available and it processes each file
-            self.process_file(file_path, folder_dir_in_features)
-
-    def get_treatment_to_directories_map(self):
-        treatment_to_directories = collections.defaultdict(list)
-
-        if os.path.isdir(self.src_directory):
-            # If it's a directory, loop through each treatment directory.
-            for treatment in self.treatments:
-                treatment_dir = os.path.join(self.src_directory, treatment)
-                # Check for mapped treatment
-                mapped_treatment = self.treatment_mapping.get(treatment, treatment)
-                treatment_to_directories[mapped_treatment].append(treatment_dir)
-        else:
-            with open(self.src_directory, 'r') as file:
-                paths = [line.strip() for line in file]
-                for path in paths:
-                    if not path.endswith('.wav'):
-                        treatment = self.get_treatment_from_path(path)
-                        mapped_treatment = self.treatment_mapping.get(treatment, treatment)
-                        treatment_to_directories[mapped_treatment].append(path)
-
-        return treatment_to_directories
-
-    def process_treatment(self, treatment_directories, treatment_dir_in_features) -> None:
-        for treatment_dir_in_src in treatment_directories:
-            wav_files = glob.glob(os.path.join(treatment_dir_in_src, '**/*.wav'), recursive=True)
-            for file_path in wav_files:
-                target_directory = treatment_dir_in_features
-                if self.use_folder_structure:
-                    folder_name = self.get_folder_name_from_path(file_path)
-                    target_directory = os.path.join(treatment_dir_in_features, folder_name)
-                    os.makedirs(target_directory, exist_ok=True)
-                self.process_file(file_path, target_directory)
-
-    def process_file(self, file_path, counter, treatment_dir_features):
+    def process_file(self, file_path, treatment_dir_features):
 
         filename, treatment, dict_data = self.get_directory_info(file_path)
         print(filename, "is being processed in", treatment)
-        h5_file_return = self.create_h5_file(filename, counter, treatment_dir_features)
+        h5_file_return = self.create_h5_file(filename, treatment_dir_features)
         if h5_file_return is None:
             print(f"Skipping file {file_path} as it already exists.")
             return
         h5_file, h5_path = h5_file_return
-        signal, sr = librosa.load(file_path, sr=44100)
+        signal, sr = librosa.load(file_path, sr=self.sample_rate)
         num_samples_per_segment, expected_shape = self.get_expected_shape(signal, sr)
 
         for s in range(self.num_segments):
@@ -423,7 +326,5 @@ class AudioProcessor:
 
 
 if __name__ == '__main__':
+    path_manager = PathManager()
 
-    audio = AudioProcessor('mfccs_and_derivatives')
-    audio.select_file_with_paths()
-    audio.run()
