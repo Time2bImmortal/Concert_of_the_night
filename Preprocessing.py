@@ -6,12 +6,12 @@ import soundfile as sf
 import numpy as np
 import json
 import tkinter as tk
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 import math
 import collections
 import shutil
 from typing import List
-import multiprocessing
+from multiprocessing import Process
 import glob
 from typing import Tuple
 import supporting_functions
@@ -26,7 +26,7 @@ class PathManager:
         self.threshold = 0.01
         self.above_threshold_duration = 300
         self.required_num_files = 20
-
+        self.feature_to_extract = 'mfccs_and_derivatives'
         self.treatment_mapping = {
             "Gb12": "LD",
             "Gb24": "LL",
@@ -40,25 +40,29 @@ class PathManager:
         root = tk.Tk()
         root.withdraw()  # Hide the main window
 
-        # Ask user to choose a directory
-        directory = filedialog.askdirectory(title="Choose a directory or select a file within a directory")
+        # Popup to decide the type of source to select
+        choice = messagebox.askyesno("Source Type", "Do you want to select a directory? (No for selecting a text file)")
 
-        # If a directory is selected, check if it contains a file.
-        # If it contains a file, then use that file as the source.
-        if directory:
-            for file in os.listdir(directory):
-                if file.endswith(".txt"):
-                    return os.path.join(directory, file)
-            return directory
-        else:
-            return None
+        if choice:  # User chose 'Yes' to select a directory
+            directory = filedialog.askdirectory(title="Choose a directory")
+            if directory:
+                return directory
+        else:  # User chose 'No', so they want to select a text file
+            file_path = filedialog.askopenfilename(title="Choose a text file", filetypes=[("Text Files", "*.txt")])
+            if file_path:
+                return file_path
+
+        return None
 
     def _fetch_paths(self):
         if os.path.isdir(self.source):
-            self.find_valid_folders()
+            valid_paths = self.find_valid_folders()
             output_file = os.path.join(os.path.dirname(self.source), "valid_folders.txt")
-            return self._read_paths_from_file(output_file)
-        elif os.path.isfile(self.source):
+            with open(output_file, 'w') as file:
+                for path in valid_paths:
+                    file.write(path + '\n')
+            print(f"Valid paths have been saved to {output_file}. Please use this file for further processing.")
+        elif os.path.isfile(self.source) and self.source.endswith('.txt'):
             return self._read_paths_from_file(self.source)
         else:
             raise ValueError("The provided source is neither a directory nor a valid file.")
@@ -76,48 +80,56 @@ class PathManager:
         return self._duration_above_amplitude_simple(y, sr) >= self.above_threshold_duration
 
     def find_valid_folders(self):
-        output_file = os.path.join(os.path.dirname(self.source), "valid_folders.txt")
-
-        with open(output_file, 'w') as file:
-            for root, _, files in os.walk(self.source):
-                valid_files = [os.path.join(root, file_name) for file_name in files if
-                               file_name.lower().endswith(self.valid_extension) and
-                               self._check_file_size(os.path.join(root, file_name)) and
-                               self._is_valid_audio(os.path.join(root, file_name))]
-
-                if len(valid_files) >= self.required_num_files:
-                    file.write(root + '\n')
-                    for valid_file in valid_files:
-                        file.write(valid_file + '\n')
-                    file.write('\n')  # Add an extra newline for clarity
-
-        print(f"Paths written to {output_file}.")
+        valid_paths = []
+        for root, _, files in os.walk(self.source):
+            for file_name in files:
+                if (file_name.lower().endswith(self.valid_extension) and
+                        self._check_file_size(os.path.join(root, file_name)) and
+                        self._is_valid_audio(os.path.join(root, file_name))):
+                    valid_paths.append(os.path.join(root, file_name))
+        return valid_paths
 
     def _read_paths_from_file(self, filepath):
         with open(filepath, 'r') as file:
-            paths = []
-            for line in file:
-                line = line.strip()
-                if os.path.isfile(line):
-                    paths.append(line)
-                elif os.path.isdir(line):
-                    paths.extend([os.path.join(line, file) for file in os.listdir(line) if file.endswith(self.valid_extension)])
-            return paths
+            paths = [line.strip() for line in file if
+                     os.path.isfile(line.strip()) and line.strip().lower().endswith('.wav')]
+        return paths
 
     def get_treatment(self, path):
         base_name = os.path.basename(path).split('.')[0]  # Remove extension to get the name
         return self.treatment_mapping.get(base_name, None)
 
-    def create_nested_folder(self, path):
-        treatment = self.get_treatment(path)
-        if not treatment:
-            print(f"Warning: No treatment found for {path}.")
-            return
+    def create_feature_and_treatment_folders(self):
 
-        nested_folder_path = os.path.join(os.path.dirname(path), treatment)
-        os.makedirs(nested_folder_path, exist_ok=True)  # Safely create nested directory
+        feature_name_folder = os.path.join(os.path.dirname(self.source),
+                                           self.feature_to_extract)
+        os.makedirs(feature_name_folder, exist_ok=True)
 
-        return nested_folder_path
+        for treatment in self.treatment_mapping.values():
+            os.makedirs(os.path.join(feature_name_folder, treatment), exist_ok=True)
+
+        return feature_name_folder
+
+    def distribute_paths_to_processes(self):
+        feature_folder = self.create_feature_and_treatment_folders()
+
+        processes = []
+        for key, treatment in self.treatment_mapping.items():
+            treatment_folder = os.path.join(feature_folder, treatment)
+            paths_for_treatment = [path for path in self.paths if key in os.path.basename(path)]
+
+            # Creating process for each treatment
+            process = Process(target=self.process_function, args=(treatment_folder, paths_for_treatment))
+            processes.append(process)
+            process.start()
+
+        for process in processes:
+            process.join()
+
+    def process_function(self, treatment_folder, paths):
+        for path in paths:
+            # Handle your file processing logic here, like moving, copying, analyzing, etc.
+            pass
 
     def get_paths(self):
         return self.paths
