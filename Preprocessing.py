@@ -167,13 +167,13 @@ class AudioProcessor:
             return
 
         signal, sr = librosa.load(file_path, sr=self.SAMPLE_RATE)
-        num_samples_per_segment, expected_shape = self.get_expected_shape(signal, self.SAMPLE_RATE)
+        num_samples_per_segment, expected_shape = self.get_expected_shape(signal)
 
         for s in range(self.NUM_SEGMENTS):
             segment_signal = self.get_segment_signal(file_path, s, signal, num_samples_per_segment)
 
             if segment_signal is not None:
-                feature_vectors = self.extract_feature(segment_signal, self.SAMPLE_RATE)
+                feature_vectors = self.extract_feature(segment_signal)
 
                 if self.check_feature_vectors(feature_vectors, expected_shape, file_path, s):
                     self.update_dict_data(dict_data, feature_vectors)
