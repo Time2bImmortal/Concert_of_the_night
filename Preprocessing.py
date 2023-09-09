@@ -74,10 +74,12 @@ class PathManager:
 
     def find_valid_folders(self, file):
         for root, _, files in os.walk(self.source):
-            print('you are currently in:', _)
+            print('you are currently in:', root)
 
             # First check: Are there enough files in the folder to start with?
-            if len(files) < self.required_num_files:
+            wav_files = [f for f in files if f.lower().endswith('.wav')]
+
+            if len(wav_files) < self.required_num_files:
                 continue
 
             valid_files_paths = []
