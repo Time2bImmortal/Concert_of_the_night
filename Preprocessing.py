@@ -77,7 +77,7 @@ class PathManager:
             print('you are currently in:', root)
 
             # First check: Are there enough files in the folder to start with?
-            wav_files = [f for f in files if f.lower().endswith('.wav')]
+            wav_files = [f for f in files if f.lower().endswith(self.valid_extension)]
 
             if len(wav_files) < self.required_num_files:
                 continue
@@ -93,8 +93,10 @@ class PathManager:
                     valid_files_paths.append(full_path)
 
             if len(valid_files_paths) >= self.required_num_files:
+                print(len(valid_files_paths))
                 for valid_path in valid_files_paths:
                     file.write(valid_path + '\n')
+
 
     def _read_paths_from_file(self, filepath):
         with open(filepath, 'r') as file:
