@@ -130,8 +130,6 @@ class PathManager:
 
     def process_function(self, treatment_folder, paths, audio_processor_instance):
         for path in paths:
-            extracted_feature = audio_processor_instance.extract_feature(path)
-
             # Decide the destination folder
             if self.use_subfolders:
                 subfolder_name = os.path.basename(os.path.dirname(path))
@@ -140,19 +138,10 @@ class PathManager:
             else:
                 destination_folder = treatment_folder
 
-            # Save the extracted feature to the destination
-            destination_path = os.path.join(destination_folder, os.path.basename(path))
-            audio_processor_instance.save_feature(extracted_feature, destination_path)
+            treatment = os.path.basename(treatment_folder)
+            print(os.path.basename(path), 'file is treated in treatment ', treatment)
+            audio_processor_instance.process_file(path, treatment, destination_folder)
 
-    def extract_feature(self, file_path):
-        # Placeholder for feature extraction code.
-        # This method should take in a .wav file path and return the extracted feature.
-        pass
-
-    def save_feature(self, feature, destination_path):
-        # Placeholder for saving the feature.
-        # This method should take in the extracted feature and a destination path, then save the feature to the path.
-        pass
 
     def get_paths(self):
         return self.paths
@@ -168,61 +157,31 @@ class AudioProcessor:
     def __init__(self, feature: str):
         self.feature = feature
 
-    def process_file(self, file_path, treatment_dir_features):
+    def process_file(self, file_path, treatment, destination):
+        dict_data = self.get_directory_info(file_path, treatment)
 
-        filename, treatment, dict_data = self.get_directory_info(file_path)
-        print(filename, "is being processed in", treatment)
-        h5_file_return = self.create_h5_file(filename, treatment_dir_features)
-        if h5_file_return is None:
+        # Modify destination to replace .wav with .h5 in filename
+        h5_path = os.path.join(destination, os.path.basename(file_path).replace(".wav", ".h5"))
+        if os.path.isfile(h5_path):
             print(f"Skipping file {file_path} as it already exists.")
             return
-        h5_file, h5_path = h5_file_return
+
         signal, sr = librosa.load(file_path, sr=self.SAMPLE_RATE)
         num_samples_per_segment, expected_shape = self.get_expected_shape(signal, self.SAMPLE_RATE)
 
         for s in range(self.NUM_SEGMENTS):
-            segment_signal = self.get_segment_signal(filename, s, signal, num_samples_per_segment)
+            segment_signal = self.get_segment_signal(file_path, s, signal, num_samples_per_segment)
 
             if segment_signal is not None:
                 feature_vectors = self.extract_feature(segment_signal, self.SAMPLE_RATE)
 
-                if self.check_feature_vectors(feature_vectors, expected_shape, filename, s):
-                    self.update_dict_data(dict_data, feature_vectors, treatment, s)
+                if self.check_feature_vectors(feature_vectors, expected_shape, file_path, s):
+                    self.update_dict_data(dict_data, feature_vectors)
 
         self.write_h5(dict_data, h5_path)
 
-    def write_metadata(self, sr, signal, feature_vectors):
-
-        metadata_file_path = os.path.join(self.features_dir, f'{self.feature}_metadata.txt')
-        if not os.path.exists(metadata_file_path):
-            details = self.get_details(sr, signal, feature_vectors)
-            with open(metadata_file_path, 'w') as f:
-                f.write(f"Extraction details for processed feature: {self.feature}:\n")
-                for key, value in details.items():
-                    f.write(f"{key}: {value}\n")
-
-    def get_details(self, signal, feature_vectors):
-
-        treatment_indices = {treatment: i for i, treatment in enumerate(self.treatments)}
-
-        return {
-            "Sampling rate": self.SAMPLE_RATE,
-            "Number of segments": self.NUM_SEGMENTS,
-            "Duration": librosa.get_duration(y=signal, sr=self.SAMPLE_RATE),
-            "Hop length": self.HOP_LENGTH,
-            "Frame size": self.FRAME_SIZE,
-            "Shape of the feature extracted": feature_vectors.shape,
-            "Treatments and indices": treatment_indices
-        }
-
-    def update_dict_data(self, dict_data, feature_vectors, treatment, s):
-
-        if treatment in self.treatments:
-            dict_data[self.feature].append(feature_vectors.tolist())
-            dict_data["labels"].append(self.treatments.index(treatment))
-            dict_data["segment_number"].append(s)
-        else:
-            print(f"Treatment {treatment} not found in self.treatments")
+    def update_dict_data(self, dict_data, feature_vectors):
+        dict_data[self.feature].append(feature_vectors.tolist())
 
     def check_feature_vectors(self, feature_vectors, expected_shape, filename, s):
 
@@ -246,16 +205,7 @@ class AudioProcessor:
             return None
         return segment_signal
 
-    def create_h5_file(self, filename, counter, treatment_dir_features):
-
-        h5_file = filename.replace(filename, f"{str(counter).zfill(5)}_{self.feature}.h5")
-        h5_path = os.path.join(treatment_dir_features, h5_file)
-        if os.path.isfile(h5_path):
-            print(f"'{h5_file}' file already exists in {treatment_dir_features}. Skipping this file.")
-            return None
-        return h5_file, h5_path
-
-    def get_directory_info(self, file_path):
+    def get_directory_info(self, file_path, treatment):
 
         if not os.path.isfile(file_path):
             print(f"Error: {file_path} is not a valid file.")
@@ -266,17 +216,25 @@ class AudioProcessor:
             print(f"Error: {filename} is not a .wav file.")
             return None, None, None, None
 
-        relative_path = os.path.relpath(file_path, self.src_directory)
-        parts = relative_path.split(os.path.sep)
-        treatment = parts[0] if len(parts) > 1 else None
         dict_data = {
             "path": file_path,
-            "filename": filename,
             self.feature: [],
-            "labels": [],
-            "segment_number": []
+            "labels": [treatment] * self.NUM_SEGMENTS,
+            "segment_number": list(range(self.NUM_SEGMENTS))
         }
-        return filename, treatment, dict_data
+        return dict_data
+
+    @staticmethod
+    def write_h5(data, filename):
+        with h5py.File(filename, 'w') as hf:
+            # Assuming data is a dictionary where keys are dataset names and values are numpy arrays
+            for key, value in data.items():
+
+                if isinstance(value, str):  # Check if the value is a string
+                    encoded_value = value.encode('utf-8')  # Convert string to byte string
+                    hf.create_dataset(key, data=np.array(encoded_value))
+                else:
+                    hf.create_dataset(key, data=np.array(value))
 
     def get_expected_shape(self, signal):
 
@@ -351,16 +309,6 @@ class AudioProcessor:
         else:
             raise ValueError(f"Unsupported feature: {self.feature}")
 
-    def write_h5(self, data, filename):
-        with h5py.File(filename, 'w') as hf:
-            # Assuming data is a dictionary where keys are dataset names and values are numpy arrays
-            for key, value in data.items():
-
-                if isinstance(value, str):  # Check if the value is a string
-                    encoded_value = value.encode('utf-8')  # Convert string to byte string
-                    hf.create_dataset(key, data=np.array(encoded_value))
-                else:
-                    hf.create_dataset(key, data=np.array(value))
 
 
 if __name__ == '__main__':
