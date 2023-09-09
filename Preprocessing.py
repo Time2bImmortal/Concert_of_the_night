@@ -57,11 +57,9 @@ class PathManager:
 
     def _fetch_paths(self):
         if os.path.isdir(self.source):
-            valid_paths = self.find_valid_folders()
             output_file = os.path.join(os.path.dirname(self.source), "valid_folders.txt")
             with open(output_file, 'w') as file:
-                for path in valid_paths:
-                    file.write(path + '\n')
+                self.find_valid_folders(file)
             print(f"Valid paths have been saved to {output_file}. Please use this file for further processing.")
         elif os.path.isfile(self.source) and self.source.endswith('.txt'):
             return self._read_paths_from_file(self.source)
@@ -80,15 +78,14 @@ class PathManager:
         y, sr = librosa.load(file_path, sr=None)
         return self._duration_above_amplitude_simple(y, sr) >= self.above_threshold_duration
 
-    def find_valid_folders(self):
-        valid_paths = []
+    def find_valid_folders(self, file):
         for root, _, files in os.walk(self.source):
             for file_name in files:
+                full_path = os.path.join(root, file_name)
                 if (file_name.lower().endswith(self.valid_extension) and
-                        self._check_file_size(os.path.join(root, file_name)) and
-                        self._is_valid_audio(os.path.join(root, file_name))):
-                    valid_paths.append(os.path.join(root, file_name))
-        return valid_paths
+                        self._check_file_size(full_path) and
+                        self._is_valid_audio(full_path)):
+                    file.write(full_path + '\n')
 
     def _read_paths_from_file(self, filepath):
         with open(filepath, 'r') as file:
@@ -117,19 +114,23 @@ class PathManager:
         processes = []
         for key, treatment in self.treatment_mapping.items():
             treatment_folder = os.path.join(feature_folder, treatment)
-            paths_for_treatment = [path for path in self.paths if key in path]
+            paths_for_treatment = [path for path in self.paths if key in os.path.basename(path)]
+
+            # Creating an instance of AudioProcessor for each process
+            audio_processor_instance = AudioProcessor(feature=self.feature_to_extract)
 
             # Creating process for each treatment
-            process = Process(target=self.process_function, args=(treatment_folder, paths_for_treatment))
+            process = Process(target=self.process_function,
+                              args=(treatment_folder, paths_for_treatment, audio_processor_instance))
             processes.append(process)
             process.start()
 
         for process in processes:
             process.join()
 
-    def process_function(self, treatment_folder, paths):
+    def process_function(self, treatment_folder, paths, audio_processor_instance):
         for path in paths:
-            extracted_feature = self.extract_feature(path)
+            extracted_feature = audio_processor_instance.extract_feature(path)
 
             # Decide the destination folder
             if self.use_subfolders:
@@ -141,7 +142,7 @@ class PathManager:
 
             # Save the extracted feature to the destination
             destination_path = os.path.join(destination_folder, os.path.basename(path))
-            self.save_feature(extracted_feature, destination_path)
+            audio_processor_instance.save_feature(extracted_feature, destination_path)
 
     def extract_feature(self, file_path):
         # Placeholder for feature extraction code.
@@ -158,14 +159,14 @@ class PathManager:
 
 
 class AudioProcessor:
-    def __init__(self, feature: str):
+    N_MFCC = 13
+    FRAME_SIZE = 2048
+    HOP_LENGTH = 1024
+    NUM_SEGMENTS = 30
+    SAMPLE_RATE = 44100
 
+    def __init__(self, feature: str):
         self.feature = feature
-        self.n_mfcc = 13
-        self.frame_size = 2048
-        self.hop_length = 1024
-        self.num_segments = 30
-        self.sample_rate = 44100
 
     def process_file(self, file_path, treatment_dir_features):
 
@@ -176,20 +177,19 @@ class AudioProcessor:
             print(f"Skipping file {file_path} as it already exists.")
             return
         h5_file, h5_path = h5_file_return
-        signal, sr = librosa.load(file_path, sr=self.sample_rate)
-        num_samples_per_segment, expected_shape = self.get_expected_shape(signal, sr)
+        signal, sr = librosa.load(file_path, sr=self.SAMPLE_RATE)
+        num_samples_per_segment, expected_shape = self.get_expected_shape(signal, self.SAMPLE_RATE)
 
-        for s in range(self.num_segments):
+        for s in range(self.NUM_SEGMENTS):
             segment_signal = self.get_segment_signal(filename, s, signal, num_samples_per_segment)
 
             if segment_signal is not None:
-                feature_vectors = self.extract_feature(segment_signal, sr)
+                feature_vectors = self.extract_feature(segment_signal, self.SAMPLE_RATE)
 
                 if self.check_feature_vectors(feature_vectors, expected_shape, filename, s):
                     self.update_dict_data(dict_data, feature_vectors, treatment, s)
 
         self.write_h5(dict_data, h5_path)
-        self.write_metadata(sr, signal, feature_vectors)
 
     def write_metadata(self, sr, signal, feature_vectors):
 
@@ -201,16 +201,16 @@ class AudioProcessor:
                 for key, value in details.items():
                     f.write(f"{key}: {value}\n")
 
-    def get_details(self, sr, signal, feature_vectors):
+    def get_details(self, signal, feature_vectors):
 
         treatment_indices = {treatment: i for i, treatment in enumerate(self.treatments)}
 
         return {
-            "Sampling rate": sr,
-            "Number of segments": self.num_segments,
-            "Duration": librosa.get_duration(y=signal, sr=sr),
-            "Hop length": self.hop_length,
-            "Frame size": self.frame_size,
+            "Sampling rate": self.SAMPLE_RATE,
+            "Number of segments": self.NUM_SEGMENTS,
+            "Duration": librosa.get_duration(y=signal, sr=self.SAMPLE_RATE),
+            "Hop length": self.HOP_LENGTH,
+            "Frame size": self.FRAME_SIZE,
             "Shape of the feature extracted": feature_vectors.shape,
             "Treatments and indices": treatment_indices
         }
@@ -278,60 +278,61 @@ class AudioProcessor:
         }
         return filename, treatment, dict_data
 
-    def get_expected_shape(self, signal, sr):
+    def get_expected_shape(self, signal):
 
-        duration = librosa.get_duration(y=signal, sr=sr)
-        samples_per_track = sr * duration
-        num_samples_per_segment = samples_per_track / self.num_segments
+        duration = librosa.get_duration(y=signal, sr=self.SAMPLE_RATE)
+        samples_per_track = self.SAMPLE_RATE * duration
+        num_samples_per_segment = samples_per_track / self.NUM_SEGMENTS
 
         if self.feature in ["mfcc", "spectrogram", "mel_spectrogram"]:
-            expected_shape = (self.n_mfcc, math.ceil(num_samples_per_segment / self.hop_length))
+            expected_shape = (self.N_MFCC, math.ceil(num_samples_per_segment / self.HOP_LENGTH))
         elif self.feature in ["ae", "rms", "zcr", "ber", 'sc', 'bw']:
-            expected_shape = (1, math.ceil(num_samples_per_segment / self.hop_length))
+            expected_shape = (1, math.ceil(num_samples_per_segment / self.HOP_LENGTH))
         elif self.feature in ['mfccs_and_derivatives']:
-            expected_shape = (self.n_mfcc*3, math.ceil(num_samples_per_segment / self.hop_length))
+            expected_shape = (self.N_MFCC*3, math.ceil(num_samples_per_segment / self.HOP_LENGTH))
         else:
             raise ValueError(f"Unsupported feature: {self.feature}")
 
         return num_samples_per_segment, expected_shape
 
-    def extract_feature(self, signal, sr):
+    def extract_feature(self, signal):
 
         if self.feature == "mfcc":
-            return librosa.feature.mfcc(y=signal, n_fft=self.frame_size, n_mfcc=self.n_mfcc, hop_length=self.hop_length,
-                                        sr=sr)
+            return librosa.feature.mfcc(y=signal, n_fft=self.FRAME_SIZE, n_mfcc=self.N_MFCC, hop_length=self.HOP_LENGTH,
+                                        sr=self.SAMPLE_RATE)
         elif self.feature == "mfccs_and_derivatives":
-            mfccs = librosa.feature.mfcc(y=signal, n_fft=self.frame_size, n_mfcc=self.n_mfcc,
-                                         hop_length=self.hop_length, sr=sr)
+            mfccs = librosa.feature.mfcc(y=signal, n_fft=self.FRAME_SIZE, n_mfcc=self.N_MFCC,
+                                         hop_length=self.HOP_LENGTH, sr=self.SAMPLE_RATE)
 
             mfcc_delta = librosa.feature.delta(mfccs)
             mfcc_delta2 = librosa.feature.delta(mfccs, order=2)
             combined = np.vstack([mfccs, mfcc_delta, mfcc_delta2])
             return combined
+
         elif self.feature == "spectrogram":
-            S_complex = librosa.stft(signal, hop_length=self.hop_length, n_fft=self.frame_size)
+            S_complex = librosa.stft(signal, hop_length=self.HOP_LENGTH, n_fft=self.FRAME_SIZE)
             spectrogram = np.abs(S_complex)
             log_spectrogram = librosa.amplitude_to_db(spectrogram)
             return log_spectrogram
         elif self.feature == "mel_spectrogram":
-            S = librosa.feature.melspectrogram(y=signal, sr=sr)
+            S = librosa.feature.melspectrogram(y=signal, sr=self.SAMPLE_RATE)
             S_dB = librosa.power_to_db(S, ref=np.max)
 
             return S_dB
         elif self.feature == "ae":
             amplitude_envelope = []
-            for i in range(0, len(signal), self.hop_length):
-                current_ae = max(signal[i:i+self.frame_size])
+            for i in range(0, len(signal), self.HOP_LENGTH):
+                current_ae = max(signal[i:i+self.FRAME_SIZE])
                 amplitude_envelope.append(current_ae)
             amplitude_envelope = np.array(amplitude_envelope).reshape(1, -1)
             return amplitude_envelope
         elif self.feature == "rms":
-            return librosa.feature.rms(y=signal, frame_length=self.frame_size, hop_length=self.hop_length)
+            return librosa.feature.rms(y=signal, frame_length=self.FRAME_SIZE, hop_length=self.HOP_LENGTH)
         elif self.feature == "zcr":
-            return librosa.feature.zero_crossing_rate(signal, frame_length=self.frame_size, hop_length=self.hop_length)
+            return librosa.feature.zero_crossing_rate(signal, frame_length=self.FRAME_SIZE, hop_length=self.HOP_LENGTH)
         elif self.feature == "ber":
-            spectogram = librosa.stft(signal, n_fft=self.frame_size, hop_length=self.hop_length)
-            frequency_range = sr/2
+            spectogram = librosa.stft(signal, n_fft=self.FRAME_SIZE, hop_length=self.HOP_LENGTH)
+            frequency_range = self.SAMPLE_RATE/2
             frequency_delta_bin = frequency_range/spectogram.shape[0]
             split_frequency = int(np.floor(2000/frequency_delta_bin))
             power_spec = np.abs(spectogram) ** 2
@@ -344,9 +345,9 @@ class AudioProcessor:
                 band_energy_ratio.append(ber_current_frame)
             return np.array(band_energy_ratio).reshape(1, -1)
         elif self.feature == 'sc':
-            return librosa.feature.spectral_centroid(y=signal, sr=sr, n_fft=self.frame_size, hop_length=self.hop_length)
+            return librosa.feature.spectral_centroid(y=signal, sr=self.SAMPLE_RATE, n_fft=self.FRAME_SIZE, hop_length=self.HOP_LENGTH)
         elif self.feature == 'bw':
-            return librosa.feature.spectral_bandwidth(y=signal, sr=sr, n_fft=self.frame_size, hop_length=self.hop_length)
+            return librosa.feature.spectral_bandwidth(y=signal, sr=self.SAMPLE_RATE, n_fft=self.FRAME_SIZE, hop_length=self.HOP_LENGTH)
         else:
             raise ValueError(f"Unsupported feature: {self.feature}")
 
