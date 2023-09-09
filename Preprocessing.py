@@ -227,12 +227,14 @@ class AudioProcessor:
     @staticmethod
     def write_h5(data, filename):
         with h5py.File(filename, 'w') as hf:
-            # Assuming data is a dictionary where keys are dataset names and values are numpy arrays
             for key, value in data.items():
-
                 if isinstance(value, str):  # Check if the value is a string
                     encoded_value = value.encode('utf-8')  # Convert string to byte string
-                    hf.create_dataset(key, data=np.array(encoded_value))
+                    hf.create_dataset(key, data=encoded_value)
+                elif isinstance(value, list) and all(
+                        isinstance(item, str) for item in value):  # Check if the value is a list of strings
+                    str_dtype = h5py.string_dtype(encoding='utf-8')
+                    hf.create_dataset(key, data=value, dtype=str_dtype)
                 else:
                     hf.create_dataset(key, data=np.array(value))
 
