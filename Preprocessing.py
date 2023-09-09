@@ -8,6 +8,7 @@ import math
 from multiprocessing import Process
 import warnings
 warnings.filterwarnings("ignore", message="loaded more than 1 DLL from .libs:")
+warnings.filterwarnings('ignore', category=UserWarning, module='numpy')
 import h5py
 
 class PathManager:
@@ -18,7 +19,7 @@ class PathManager:
         self.valid_extension = '.wav'
         self.threshold = 0.01
         self.above_threshold_duration = 300
-        self.required_num_files = 15
+        self.required_num_files = 10
         self.feature_to_extract = 'mfccs_and_derivatives'
         self.treatment_mapping = {
             "Gb12": "LD",
@@ -73,6 +74,7 @@ class PathManager:
 
     def find_valid_folders(self, file):
         for root, _, files in os.walk(self.source):
+            print('you are currently in:', _)
 
             # First check: Are there enough files in the folder to start with?
             if len(files) < self.required_num_files:
