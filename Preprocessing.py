@@ -76,24 +76,22 @@ class PathManager:
         for root, _, files in os.walk(self.source):
             print('you are currently in:', root)
 
-            # First check: Are there enough files in the folder to start with?
-            wav_files = [f for f in files if f.lower().endswith(self.valid_extension)]
+            wav_files = [f for f in files if f.lower().endswith('.wav')]
 
             if len(wav_files) < self.required_num_files:
                 continue
 
             valid_files_paths = []
-            for file_name in files:
-                full_path = os.path.join(root, file_name)
+            for file_name in wav_files:
+                if len(valid_files_paths) > 2 * self.required_num_files:
+                    break
 
-                # Check if each file is valid by extension, size, and audio content
-                if (file_name.lower().endswith(self.valid_extension) and
-                        self._check_file_size(full_path) and
-                        self._is_valid_audio(full_path)):
+                full_path = os.path.join(root, file_name)
+                if (self._check_file_size(full_path) and self._is_valid_audio(full_path)):
                     valid_files_paths.append(full_path)
 
             if len(valid_files_paths) >= self.required_num_files:
-                print(len(valid_files_paths))
+                print(f"Number of valid files in {root}: {len(valid_files_paths)}")
                 for valid_path in valid_files_paths:
                     file.write(valid_path + '\n')
 
