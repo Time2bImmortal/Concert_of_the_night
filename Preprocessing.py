@@ -40,15 +40,18 @@ class PathManager:
         root = tk.Tk()
         root.withdraw()  # Hide the main window
 
-        # Ask user to choose either a file or a directory
-        file_or_directory = filedialog.askopenfilename(title="Select a file or directory",
-                                                       defaultextension=("Text Files", "*.txt"),
-                                                       filetypes=(("Text Files", "*.txt"),("All Files", "*.*")))
-        # If user closed or canceled, then ask for directory
-        if not file_or_directory:
-            file_or_directory = filedialog.askdirectory(title="Choose a directory")
+        # Ask user to choose a directory
+        directory = filedialog.askdirectory(title="Choose a directory or select a file within a directory")
 
-        return file_or_directory
+        # If a directory is selected, check if it contains a file.
+        # If it contains a file, then use that file as the source.
+        if directory:
+            for file in os.listdir(directory):
+                if file.endswith(".txt"):
+                    return os.path.join(directory, file)
+            return directory
+        else:
+            return None
 
     def _fetch_paths(self):
         if os.path.isdir(self.source):
