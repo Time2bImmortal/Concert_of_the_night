@@ -35,6 +35,7 @@ class PathManager:
         }
 
         self.paths = self._fetch_paths()
+        self.use_subfolders = True
 
     def choose_source(self):
         root = tk.Tk()
@@ -116,7 +117,7 @@ class PathManager:
         processes = []
         for key, treatment in self.treatment_mapping.items():
             treatment_folder = os.path.join(feature_folder, treatment)
-            paths_for_treatment = [path for path in self.paths if key in os.path.basename(path)]
+            paths_for_treatment = [path for path in self.paths if key in path]
 
             # Creating process for each treatment
             process = Process(target=self.process_function, args=(treatment_folder, paths_for_treatment))
@@ -128,8 +129,29 @@ class PathManager:
 
     def process_function(self, treatment_folder, paths):
         for path in paths:
-            # Handle your file processing logic here, like moving, copying, analyzing, etc.
-            pass
+            extracted_feature = self.extract_feature(path)
+
+            # Decide the destination folder
+            if self.use_subfolders:
+                subfolder_name = os.path.basename(os.path.dirname(path))
+                destination_folder = os.path.join(treatment_folder, subfolder_name)
+                os.makedirs(destination_folder, exist_ok=True)
+            else:
+                destination_folder = treatment_folder
+
+            # Save the extracted feature to the destination
+            destination_path = os.path.join(destination_folder, os.path.basename(path))
+            self.save_feature(extracted_feature, destination_path)
+
+    def extract_feature(self, file_path):
+        # Placeholder for feature extraction code.
+        # This method should take in a .wav file path and return the extracted feature.
+        pass
+
+    def save_feature(self, feature, destination_path):
+        # Placeholder for saving the feature.
+        # This method should take in the extracted feature and a destination path, then save the feature to the path.
+        pass
 
     def get_paths(self):
         return self.paths
