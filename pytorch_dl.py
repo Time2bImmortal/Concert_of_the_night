@@ -86,7 +86,8 @@ class CustomDataset(Dataset):
             all_labels = []
             for path in self.file_paths:
                 with h5py.File(path, 'r') as h5_file:
-                    all_labels.extend([h5_file['labels'][0]] * 30)  # repeating the label 30 times for each file
+                    all_labels.extend(h5_file['labels'][:])
+            # repeating the label 30 times for each file
             # Shuffle the extracted labels
             random.shuffle(all_labels)
             self.shuffled_labels = all_labels
@@ -133,10 +134,13 @@ class CustomDataset(Dataset):
 
 
 class CustomDataLoader:
-    def __init__(self, folder_path, num_files_per_treatment=150, min_file_size=20000000, max_file_size=30000000,
-                 file_extension='.h5', test_size=0.1):
+    def __init__(self, folder_path, num_files_per_treatment=150, min_file_size=10000000, max_file_size=50000000,
+                 file_extension='.h5', test_size=0.1, use_subjects=True, num_subjects=9, files_per_subject=10):
         self.folder_path = folder_path
         self.num_files_per_treatment = num_files_per_treatment
+        self.use_subjects = use_subjects
+        self.num_subjects = num_subjects
+        self.files_per_subject = files_per_subject
         self.min_file_size = min_file_size
         self.max_file_size = max_file_size
         self.file_extension = file_extension
@@ -146,6 +150,12 @@ class CustomDataLoader:
         self.test_files = []
 
     def _get_filtered_files(self):
+        if not self.use_subjects:
+            return self._get_files_without_subjects()
+        else:
+            return self._get_files_with_subjects()
+
+    def _get_files_without_subjects(self):
         treatment_files = {}
         treatments = os.listdir(self.folder_path)
         for treatment in treatments:
@@ -157,6 +167,30 @@ class CustomDataLoader:
                 treatment_files[treatment] = [os.path.join(treatment_path, f) for f in
                                               valid_files[:self.num_files_per_treatment]]
         return treatment_files
+
+    def _get_files_with_subjects(self):
+        treatment_subject_files = {}
+        treatments = os.listdir(self.folder_path)
+        for treatment in treatments:
+            treatment_path = os.path.join(self.folder_path, treatment)
+            subjects = os.listdir(treatment_path)
+
+            # Randomly sample a fixed number of subjects for fairness
+            chosen_subjects = random.sample(subjects, self.num_subjects)
+
+            for subject in chosen_subjects:
+                subject_path = os.path.join(treatment_path, subject)
+                if os.path.isdir(subject_path):
+                    valid_files = [f for f in os.listdir(subject_path) if
+                                   f.endswith(self.file_extension) and self.min_file_size <= os.path.getsize(
+                                       os.path.join(subject_path, f)) <= self.max_file_size]
+
+                    # Randomly sample a fixed number of files from each subject
+                    chosen_files = random.sample(valid_files, self.files_per_subject)
+
+                    treatment_subject_files[(treatment, subject)] = [os.path.join(subject_path, f) for f in
+                                                                     chosen_files]
+        return treatment_subject_files
 
     def split_data_files(self, diagnostic_mode=False):
         treatment_files = self._get_filtered_files()
@@ -256,10 +290,10 @@ class MFCC_CNN(nn.Module):
         # Convolution layers
         self.conv1 = nn.Conv2d(1, 32, kernel_size=(5, 10), stride=1, padding=(2, 5))
         self.bn1 = nn.BatchNorm2d(32)  # Batch Normalization after conv1
-        self.dropout_conv1 = nn.Dropout(0.5)
+        self.dropout_conv1 = nn.Dropout(0.1) # 0.5
         self.conv2 = nn.Conv2d(32, 64, kernel_size=(5, 10), stride=1, padding=(2, 5))
         self.bn2 = nn.BatchNorm2d(64)  # Batch Normalization after conv2
-        self.dropout_conv2 = nn.Dropout(0.5)
+        self.dropout_conv2 = nn.Dropout(0.1) # 0.5
         self.conv3 = nn.Conv2d(64, 128, kernel_size=(5, 10), stride=1, padding=(2, 5))
         self.bn3 = nn.BatchNorm2d(128)  # Batch Normalization after conv3
 
@@ -277,7 +311,7 @@ class MFCC_CNN(nn.Module):
         self.fc2 = nn.Linear(512, 4)
 
         # Dropout layer
-        self.dropout = nn.Dropout(0.4 )
+        self.dropout = nn.Dropout(0.1) #0.4
 
     def forward(self, x):
         x = x.unsqueeze(1)
@@ -509,6 +543,7 @@ if __name__ == '__main__':
     labels_encoding = ['0', '1', '2', '3']
     BATCH_SIZE = 18
     NUM_FILES = 175
+
     folder_path = filedialog.askdirectory()
     logging.info(f"The path: {folder_path} is going to be treated now.")
 
@@ -517,6 +552,20 @@ if __name__ == '__main__':
 
     # Load data
     logging.info("Splitting files...")
+    # test
+    print("Without using subjects:")
+    dataloader = CustomDataLoader(folder_path, use_subjects=False)
+    files_without_subjects = dataloader._get_filtered_files()
+    for key, value in files_without_subjects.items():
+        print(f"Category: {key} -> Number of Files: {len(value)}")
+
+    print("\nWith subjects:")
+    dataloader_with_subjects = CustomDataLoader(folder_path, use_subjects=True)
+    files_with_subjects = dataloader_with_subjects._get_filtered_files()
+    for (treatment, subject), files in files_with_subjects.items():
+        print(f"Treatment: {treatment}, Subject: {subject} -> Number of Files: {len(files)}")
+
+    exit()
     data_loader = CustomDataLoader(folder_path, num_files_per_treatment=NUM_FILES)
     data_loader.split_data_files()
     logging.info("Files have been split successfully!")
@@ -548,9 +597,9 @@ if __name__ == '__main__':
     model =MFCC_CNN()
     model.to(device)
     loss_fn = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.00015, weight_decay=0.00010)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.0001)  # 0.0002 lr
     scheduler = ReduceLROnPlateau(optimizer, 'min', patience=10, factor=0.8)
 
     trainer = Trainer(model, train_loader, val_loader, test_loader, optimizer, loss_fn, device)
-    trainer.train(n_epochs=100, best_accuracy=98, batch_size=BATCH_SIZE, num_files=NUM_FILES,
+    trainer.train(n_epochs=10, best_accuracy=95, batch_size=BATCH_SIZE, num_files=NUM_FILES,
                   folder_name=os.path.basename(folder_path))
