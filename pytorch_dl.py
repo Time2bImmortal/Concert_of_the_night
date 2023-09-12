@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 import itertools
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import logging
+from collections import defaultdict
 
 def set_seed(seed_value=42):
     """Set seed for reproducibility."""
@@ -207,42 +208,17 @@ class CustomDataLoaderWithSubjects:
         self.test_files = []
 
     def _get_files_with_subjects(self):
-        treatment_subject_files = {}
-        treatments = os.listdir(self.folder_path)
+        treatment_subject_files = defaultdict(lambda: {"train": [], "valid": [], "test": []})
 
-        for treatment in treatments:
-            treatment_path = os.path.join(self.folder_path, treatment)
-            subjects = os.listdir(treatment_path)
+        for treatment in self.treatments:
+            files_for_treatment = [f for f in self.data_files if treatment in f]
 
-            # Split the subjects into test subjects and train+validation subjects
-            train_valid_subjects, test_subjects = train_test_split(subjects, test_size=self.num_test_subjects,
-                                                                   shuffle=True)
+            # Assuming you have some method to split these files into train, valid, and test
+            train_files, valid_files, test_files = self._split_files_for_treatment(files_for_treatment)
 
-            # Divide train_valid_subjects into k groups for cross-validation
-            groups = [train_valid_subjects[i::self.num_folds] for i in range(self.num_folds)]
-
-            validation_subjects = groups[self.current_fold]
-            train_subjects = [subj for group in groups if group != validation_subjects for subj in group]
-
-            # Handle test files
-            for subject in test_subjects:
-                subject_path = os.path.join(treatment_path, subject)
-                if os.path.isdir(subject_path):
-                    valid_files = self._get_valid_files_from_subject(subject_path)
-                    self.test_files.extend(valid_files)
-
-            # Handle train files
-            for subject in train_subjects:
-                subject_path = os.path.join(treatment_path, subject)
-                if os.path.isdir(subject_path):
-                    valid_files = self._get_valid_files_from_subject(subject_path)
-                    treatment_subject_files[treatment]["train"].extend(valid_files)
-
-            for subject in validation_subjects:
-                subject_path = os.path.join(treatment_path, subject)
-                if os.path.isdir(subject_path):
-                    valid_files = self._get_valid_files_from_subject(subject_path)
-                    treatment_subject_files[treatment]["valid"].extend(valid_files)
+            treatment_subject_files[treatment]["train"].extend(train_files)
+            treatment_subject_files[treatment]["valid"].extend(valid_files)
+            treatment_subject_files[treatment]["test"].extend(test_files)
 
         return treatment_subject_files
 
