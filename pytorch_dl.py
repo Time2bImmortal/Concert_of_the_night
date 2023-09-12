@@ -19,6 +19,7 @@ import itertools
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import logging
 from collections import defaultdict
+from itertools import combinations
 
 def set_seed(seed_value=42):
     """Set seed for reproducibility."""
@@ -214,16 +215,21 @@ class CustomDataLoaderWithSubjects:
         for treatment in treatments:
             treatment_path = os.path.join(self.folder_path, treatment)
             subjects = os.listdir(treatment_path)
-
+            total = self.num_test_subjects + self.num_train_valid_subjects
+            random.shuffle(subjects)
+            if len(subjects) > total:
+                subjects = subjects[:total]
             # Split the subjects into test subjects and train+validation subjects
             train_valid_subjects, test_subjects = train_test_split(subjects, test_size=self.num_test_subjects,
                                                                    shuffle=True)
 
-            # Divide train_valid_subjects into k groups for cross-validation
-            groups = [train_valid_subjects[i::self.num_folds] for i in range(self.num_folds)]
+            combinations_list = list(combinations(train_valid_subjects, self.num_folds))
 
-            validation_subjects = groups[self.current_fold]
-            train_subjects = [subj for group in groups if group != validation_subjects for subj in group]
+            # For a 5-fold cross-validation, you'd then pick every third combination, or some other approach, to reduce to 5 distinct pairs.
+            selected_combinations = combinations_list[::3]
+
+            validation_subjects = list(selected_combinations[self.current_fold])
+            train_subjects = [subj for subj in train_valid_subjects if subj not in validation_subjects]
 
             # Handle test files
             for subject in test_subjects:
@@ -261,6 +267,9 @@ class CustomDataLoaderWithSubjects:
         self.val_files = []
 
         treatment_files = self._get_files_with_subjects()
+        for treatment in treatment_files:
+            self.train_files.extend(treatment_files[treatment]['train'])
+            self.val_files.extend(treatment_files[treatment]['valid'])
 
         logging.info(f"Train files: {len(self.train_files)}")
         logging.info(f"Validation files: {len(self.val_files)}")
