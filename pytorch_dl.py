@@ -134,8 +134,7 @@ class CustomDataset(Dataset):
 
             tensor_mfcc = (tensor_mfcc - self.mean[:, None]) / self.std[:, None]
 
-        encoded_label = label_encoder.transform([label])[0]
-        tensor_label = torch.tensor(encoded_label, dtype=torch.long)
+        tensor_label = torch.tensor(label, dtype=torch.long)
         return tensor_mfcc, tensor_label
 
 
