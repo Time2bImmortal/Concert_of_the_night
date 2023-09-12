@@ -219,17 +219,13 @@ class CustomDataLoaderWithSubjects:
             random.shuffle(subjects)
             if len(subjects) > total:
                 subjects = subjects[:total]
-            # Split the subjects into test subjects and train+validation subjects
+
             train_valid_subjects, test_subjects = train_test_split(subjects, test_size=self.num_test_subjects,
                                                                    shuffle=True)
 
-            combinations_list = list(combinations(train_valid_subjects, self.num_folds))
-
-            # For a 5-fold cross-validation, you'd then pick every third combination, or some other approach, to reduce to 5 distinct pairs.
-            selected_combinations = combinations_list[::3]
-
-            validation_subjects = list(selected_combinations[self.current_fold])
-            train_subjects = [subj for subj in train_valid_subjects if subj not in validation_subjects]
+            # Here, we directly split train_valid_subjects into training and validation subjects
+            train_subjects, validation_subjects = train_test_split(train_valid_subjects, test_size=2,
+                                                                   shuffle=True)  # assuming you want 2 subjects for validation
 
             # Handle test files
             for subject in test_subjects:
@@ -252,7 +248,7 @@ class CustomDataLoaderWithSubjects:
                     valid_files = self._get_valid_files_from_subject(subject_path)
                     treatment_subject_files[treatment]["valid"].extend(valid_files)
 
-        return dict(treatment_subject_files)  # Convert back to a standard dictionary for consistency
+        return dict(treatment_subject_files) # Convert back to a standard dictionary for consistency
 
     def _get_valid_files_from_subject(self, subject_path):
         valid_files = [f for f in os.listdir(subject_path) if

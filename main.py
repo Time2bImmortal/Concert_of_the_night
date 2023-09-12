@@ -7,7 +7,7 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
     # Constants
-    labels_encoding = ['0', '1', '2', '3']
+    labels_encoding = ['LD', '2lux', '5lux', 'LL'] # it can be somewhat confusing because I encoded it with 1,2,3,4 previously
     BATCH_SIZE = 18
     NUM_FILES_PER_SUBJECT = 10
 
