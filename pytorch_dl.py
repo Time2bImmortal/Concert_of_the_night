@@ -112,6 +112,9 @@ class CustomDataset(Dataset):
             else:
                 label_data = h5_file['labels'][0]
 
+        if isinstance(label_data, bytes):
+            label_data = label_data.decode('utf-8')
+
         # Transform the label using the already fitted label_encoder
         if self.label_encoder is not None:
             label = self.label_encoder.transform([label_data])[0]
@@ -233,14 +236,13 @@ class CustomDataLoaderWithSubjects:
                 subject_path = os.path.join(treatment_path, subject)
                 if os.path.isdir(subject_path):
                     valid_files = self._get_valid_files_from_subject(subject_path)
-                    self.train_files.extend(valid_files)
+                    treatment_subject_files[treatment]["train"].extend(valid_files)
 
-            # Handle valid files
             for subject in validation_subjects:
                 subject_path = os.path.join(treatment_path, subject)
                 if os.path.isdir(subject_path):
                     valid_files = self._get_valid_files_from_subject(subject_path)
-                    self.val_files.extend(valid_files)
+                    treatment_subject_files[treatment]["valid"].extend(valid_files)
 
         return treatment_subject_files
 
