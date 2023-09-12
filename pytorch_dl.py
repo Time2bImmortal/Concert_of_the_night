@@ -74,7 +74,7 @@ def compute_mean_std(loader):
 
 
 class CustomDataset(Dataset):
-    def __init__(self, file_paths, labels=None, mean=None, std=None, shuffle_labels=True):
+    def __init__(self, file_paths, labels=None, mean=None, std=None, shuffle_labels=False):
         self.file_paths = file_paths
         self.mean = mean
         self.std = std
@@ -133,27 +133,22 @@ class CustomDataset(Dataset):
         return tensor_mfcc, tensor_label
 
 
-class CustomDataLoader:
-    def __init__(self, folder_path, num_files_per_treatment=150, min_file_size=10000000, max_file_size=50000000,
-                 file_extension='.h5', test_size=0.1, use_subjects=True, num_subjects=9, files_per_subject=10):
+class CustomDataLoaderWithoutSubjects:
+    def __init__(self, folder_path, min_file_size=10000000, max_file_size=50000000,
+                 file_extension='.h5', test_size=0.1, valid_size=0.2, num_files_per_treatment=185):
         self.folder_path = folder_path
         self.num_files_per_treatment = num_files_per_treatment
-        self.use_subjects = use_subjects
-        self.num_subjects = num_subjects
-        self.files_per_subject = files_per_subject
         self.min_file_size = min_file_size
         self.max_file_size = max_file_size
         self.file_extension = file_extension
         self.test_size = test_size
+        self.valid_size = valid_size
         self.train_files = []
         self.val_files = []
         self.test_files = []
 
     def _get_filtered_files(self):
-        if not self.use_subjects:
-            return self._get_files_without_subjects()
-        else:
-            return self._get_files_with_subjects()
+        return self._get_files_without_subjects()
 
     def _get_files_without_subjects(self):
         treatment_files = {}
@@ -168,30 +163,6 @@ class CustomDataLoader:
                                               valid_files[:self.num_files_per_treatment]]
         return treatment_files
 
-    def _get_files_with_subjects(self):
-        treatment_subject_files = {}
-        treatments = os.listdir(self.folder_path)
-        for treatment in treatments:
-            treatment_path = os.path.join(self.folder_path, treatment)
-            subjects = os.listdir(treatment_path)
-
-            # Randomly sample a fixed number of subjects for fairness
-            chosen_subjects = random.sample(subjects, self.num_subjects)
-
-            for subject in chosen_subjects:
-                subject_path = os.path.join(treatment_path, subject)
-                if os.path.isdir(subject_path):
-                    valid_files = [f for f in os.listdir(subject_path) if
-                                   f.endswith(self.file_extension) and self.min_file_size <= os.path.getsize(
-                                       os.path.join(subject_path, f)) <= self.max_file_size]
-
-                    # Randomly sample a fixed number of files from each subject
-                    chosen_files = random.sample(valid_files, self.files_per_subject)
-
-                    treatment_subject_files[(treatment, subject)] = [os.path.join(subject_path, f) for f in
-                                                                     chosen_files]
-        return treatment_subject_files
-
     def split_data_files(self, diagnostic_mode=False):
         treatment_files = self._get_filtered_files()
 
@@ -202,20 +173,97 @@ class CustomDataLoader:
         else:
             all_train_files = []
             all_test_files = []
-            set_seed(42)
             for treatment, files in treatment_files.items():
                 logging.info(f"{treatment}: {len(files)} files")
                 random.shuffle(files)  # Shuffle the files before splitting
-
                 train, test_data = train_test_split(files, test_size=self.test_size)
                 all_train_files.extend(train)
                 all_test_files.extend(test_data)
-
-            self.train_files, self.val_files = train_test_split(all_train_files, test_size=0.2)
+            self.train_files, self.val_files = train_test_split(all_train_files, test_size=self.valid_size)
             self.test_files = all_test_files
+
         logging.info(f"Train files: {len(self.train_files)}")
         logging.info(f"Validation files: {len(self.val_files)}")
         logging.info(f"Test files: {len(self.test_files)}")
+
+
+class CustomDataLoaderWithSubjects:
+    def __init__(self, folder_path, min_file_size=10000000, max_file_size=50000000,
+                 file_extension='.h5', num_files_per_subject=10, num_test_subjects=3, num_train_valid_subjects=6, num_folds=5):
+        self.folder_path = folder_path
+        self.min_file_size = min_file_size
+        self.max_file_size = max_file_size
+        self.file_extension = file_extension
+        self.num_folds = num_folds
+        self.current_fold = 0
+        self.num_files_per_subject = num_files_per_subject
+        self.num_test_subjects = num_test_subjects
+        self.num_train_valid_subjects = num_train_valid_subjects
+        self.train_files = []
+        self.val_files = []
+        self.test_files = []
+
+    def _get_files_with_subjects(self):
+        treatment_subject_files = {}
+        treatments = os.listdir(self.folder_path)
+
+        for treatment in treatments:
+            treatment_path = os.path.join(self.folder_path, treatment)
+            subjects = os.listdir(treatment_path)
+
+            # Split the subjects into test subjects and train+validation subjects
+            train_valid_subjects, test_subjects = train_test_split(subjects, test_size=self.num_test_subjects,
+                                                                   shuffle=True)
+
+            # Divide train_valid_subjects into k groups for cross-validation
+            groups = [train_valid_subjects[i::self.num_folds] for i in range(self.num_folds)]
+
+            validation_subjects = groups[self.current_fold]
+            train_subjects = [subj for group in groups if group != validation_subjects for subj in group]
+
+            # Handle test files
+            for subject in test_subjects:
+                subject_path = os.path.join(treatment_path, subject)
+                if os.path.isdir(subject_path):
+                    valid_files = self._get_valid_files_from_subject(subject_path)
+                    self.test_files.extend(valid_files)
+
+            # Handle train files
+            for subject in train_subjects:
+                subject_path = os.path.join(treatment_path, subject)
+                if os.path.isdir(subject_path):
+                    valid_files = self._get_valid_files_from_subject(subject_path)
+                    self.train_files.extend(valid_files)
+
+            # Handle valid files
+            for subject in validation_subjects:
+                subject_path = os.path.join(treatment_path, subject)
+                if os.path.isdir(subject_path):
+                    valid_files = self._get_valid_files_from_subject(subject_path)
+                    self.val_files.extend(valid_files)
+
+        return treatment_subject_files
+
+    def _get_valid_files_from_subject(self, subject_path):
+        valid_files = [f for f in os.listdir(subject_path) if
+                       f.endswith(self.file_extension) and self.min_file_size <= os.path.getsize(
+                           os.path.join(subject_path, f)) <= self.max_file_size]
+        chosen_files = random.sample(valid_files, self.num_files_per_subject)
+        return [os.path.join(subject_path, f) for f in chosen_files]
+
+    def split_data_files(self):
+        # Reset only the train and validation files
+        self.train_files = []
+        self.val_files = []
+
+        treatment_files = self._get_files_with_subjects()
+
+        logging.info(f"Train files: {len(self.train_files)}")
+        logging.info(f"Validation files: {len(self.val_files)}")
+        logging.info(f"Test files: {len(self.test_files)}")
+
+    def next_fold(self):
+        self.current_fold = (self.current_fold + 1) % self.num_folds
 
 
 class TransformerBlock(nn.Module):
@@ -552,21 +600,7 @@ if __name__ == '__main__':
 
     # Load data
     logging.info("Splitting files...")
-    # test
-    print("Without using subjects:")
-    dataloader = CustomDataLoader(folder_path, use_subjects=False)
-    files_without_subjects = dataloader._get_filtered_files()
-    for key, value in files_without_subjects.items():
-        print(f"Category: {key} -> Number of Files: {len(value)}")
-
-    print("\nWith subjects:")
-    dataloader_with_subjects = CustomDataLoader(folder_path, use_subjects=True)
-    files_with_subjects = dataloader_with_subjects._get_filtered_files()
-    for (treatment, subject), files in files_with_subjects.items():
-        print(f"Treatment: {treatment}, Subject: {subject} -> Number of Files: {len(files)}")
-
-    exit()
-    data_loader = CustomDataLoader(folder_path, num_files_per_treatment=NUM_FILES)
+    data_loader = CustomDataLoaderWithoutSubjects(folder_path, num_files_per_treatment=NUM_FILES)
     data_loader.split_data_files()
     logging.info("Files have been split successfully!")
 
