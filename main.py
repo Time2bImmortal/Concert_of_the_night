@@ -43,7 +43,7 @@ if __name__ == '__main__':
         data_loader.split_data_files()
 
         # Normalize the training set and use its stats for the validation and test sets
-        train_dataset = CustomDataset(data_loader.train_files)
+        train_dataset = CustomDataset(data_loader.train_files, labels=label_encoder)
         train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=12)
         train_mean, train_std = compute_mean_std(train_loader)
         logging.info(f"Training set has been normalized")
