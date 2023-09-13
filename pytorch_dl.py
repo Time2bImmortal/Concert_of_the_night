@@ -219,7 +219,7 @@ class CustomDataLoaderWithSubjects:
             random.shuffle(subjects)
 
             # If test subjects haven't been set yet, set them
-            if not self.test_subjects:
+            if not hasattr(self, "test_subjects"):
                 _, self.test_subjects = train_test_split(subjects, test_size=self.num_test_subjects, shuffle=True)
 
             # Filter out the test subjects from the shuffled list
