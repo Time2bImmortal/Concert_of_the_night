@@ -255,6 +255,9 @@ class CustomDataLoaderWithSubjects:
             for subject in validation_subjects:
                 subject_path = os.path.join(treatment_path, subject)
                 self.val_files.extend(self._get_valid_files_from_subject(subject_path))
+        logging.info(f"Training files count: {len(self.train_files)}")
+        logging.info(f"Validation files count: {len(self.val_files)}")
+        logging.info(f"Test files count: {len(self.test_files)}")
 
     def next_fold(self):
         self.current_fold = (self.current_fold + 1) % self.num_folds
