@@ -444,11 +444,12 @@ class Trainer:
         return total_loss / (batch_idx + 1), accuracy
 
     def evaluate(self, test_loader):
+        self.test_loader = test_loader
         self.model.eval()
         all_predictions = []
         all_true_labels = []
         with torch.no_grad():
-            for data, target in test_loader:
+            for data, target in self.test_loader:
                 data, target = data.to(self.device), target.to(self.device)
                 outputs = self.model(data)
                 _, predicted = outputs.max(1)

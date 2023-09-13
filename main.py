@@ -61,7 +61,7 @@ if __name__ == '__main__':
         val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=12)
         logging.info('Data has been loaded and ready to be processed.')
 
-        trainer = Trainer(model, train_loader, val_loader, test_loader, optimizer, loss_fn, device)
+        trainer = Trainer(model, train_loader, val_loader, optimizer, loss_fn, device)
         trainer.train(n_epochs=5, best_accuracy=95, batch_size=BATCH_SIZE, num_files=NUM_FILES_PER_SUBJECT,
                       folder_name=os.path.basename(folder_path), directory=directory)
 
