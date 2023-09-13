@@ -9,7 +9,7 @@ if __name__ == '__main__':
     # Constants
     labels_encoding = ['LD', '2lux', '5lux', 'LL'] # it can be somewhat confusing because I encoded it with 1,2,3,4 previously
     BATCH_SIZE = 18
-    NUM_FILES_PER_SUBJECT = 10
+    NUM_FILES_PER_SUBJECT = 40
 
     folder_path = filedialog.askdirectory()
     logging.info(f"The path: {folder_path} is going to be treated now.")

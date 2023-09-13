@@ -208,7 +208,6 @@ class CustomDataLoaderWithSubjects:
         self.val_files = []
         self.test_files = []
         self._initialize_subject_splits()
-        self.split_data_files()
 
     def _initialize_subject_splits(self):
         self.train_valid_subjects_dict = defaultdict(list)
@@ -232,6 +231,11 @@ class CustomDataLoaderWithSubjects:
             if len(all_combinations) > self.num_folds:
                 all_combinations = random.sample(all_combinations, self.num_folds)
             self.train_valid_combinations[treatment] = all_combinations
+        for treatment, subjects in self.test_subjects_dict.items():
+            treatment_path = os.path.join(self.folder_path, treatment)
+            for subject in subjects:
+                subject_path = os.path.join(treatment_path, subject)
+                self.test_files.extend(self._get_valid_files_from_subject(subject_path))
 
     def _get_valid_files_from_subject(self, subject_path):
         valid_files = [f for f in os.listdir(subject_path) if
