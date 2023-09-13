@@ -1,5 +1,7 @@
 import math
 import os
+from copy import deepcopy
+
 from sklearn.metrics import confusion_matrix
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset, DataLoader
@@ -407,6 +409,7 @@ class Trainer:
         self.train_losses = []
         self.train_accuracies = []
         self.val_accuracies = []
+        self.best_model_state = None
 
     def train_epoch(self):
         print_interval = len(self.train_loader) // 10  # print 10 times per epoch
@@ -500,6 +503,10 @@ class Trainer:
             self.train_accuracies.append(train_accuracy)
             self.val_accuracies.append(val_accuracy)
 
+            # Save the best model state for the fold
+            if val_accuracy > max(self.val_accuracies, default=0):
+                self.best_model_state = deepcopy(self.model.state_dict())
+
             if float(val_accuracy) >= best_accuracy:
                 print(f"Accuracy of {val_accuracy:.2f}% reached. Saving model...")
                 self.evaluate_test_set(result_dir, num_files, batch_size, folder_name)
@@ -567,6 +574,9 @@ class Trainer:
         # Save the model
         torch.save(self.model.state_dict(), model_path)
         print(f"Model saved to: {model_path}")
+
+    def get_best_model_state(self):
+        return self.best_model_state
 
 
 def clear_memory():
