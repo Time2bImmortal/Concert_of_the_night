@@ -228,7 +228,7 @@ class CustomDataLoaderWithSubjects:
             self.train_valid_subjects_dict[treatment] = train_valid_subjects
             self.test_subjects_dict[treatment] = test_subjects
 
-            all_combinations = list(combinations(train_valid_subjects, self.num_train_valid_subjects - self.num_test_subjects))
+            all_combinations = list(combinations(train_valid_subjects, 4))
             if len(all_combinations) > self.num_folds:
                 all_combinations = random.sample(all_combinations, self.num_folds)
             self.train_valid_combinations[treatment] = all_combinations
@@ -246,7 +246,9 @@ class CustomDataLoaderWithSubjects:
 
         for treatment in self.train_valid_combinations:
             treatment_path = os.path.join(self.folder_path, treatment)
-            train_subjects, validation_subjects = self.train_valid_combinations[treatment][self.current_fold]
+            train_subjects = self.train_valid_combinations[treatment][self.current_fold]
+            validation_subjects = [subject for subject in self.train_valid_subjects_dict[treatment] if
+                                   subject not in train_subjects]
 
             for subject in train_subjects:
                 subject_path = os.path.join(treatment_path, subject)
