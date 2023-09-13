@@ -207,6 +207,7 @@ class CustomDataLoaderWithSubjects:
         self.train_files = []
         self.val_files = []
         self.test_files = []
+        self.test_subjects = []
 
     def _get_files_with_subjects(self):
         treatment_subject_files = defaultdict(lambda: {"train": [], "valid": [], "test": []})
@@ -215,24 +216,25 @@ class CustomDataLoaderWithSubjects:
         for treatment in treatments:
             treatment_path = os.path.join(self.folder_path, treatment)
             subjects = os.listdir(treatment_path)
-            total = self.num_test_subjects + self.num_train_valid_subjects
             random.shuffle(subjects)
-            if len(subjects) > total:
-                subjects = subjects[:total]
 
-            train_valid_subjects, test_subjects = train_test_split(subjects, test_size=self.num_test_subjects,
-                                                                   shuffle=True)
+            # If test subjects haven't been set yet, set them
+            if not self.test_subjects:
+                _, self.test_subjects = train_test_split(subjects, test_size=self.num_test_subjects, shuffle=True)
 
-            # Here, we directly split train_valid_subjects into training and validation subjects
-            train_subjects, validation_subjects = train_test_split(train_valid_subjects, test_size=2,
-                                                                   shuffle=True)  # assuming you want 2 subjects for validation
+            # Filter out the test subjects from the shuffled list
+            train_valid_subjects = [s for s in subjects if s not in self.test_subjects]
 
-            # Handle test files
-            for subject in test_subjects:
-                subject_path = os.path.join(treatment_path, subject)
-                if os.path.isdir(subject_path):
-                    valid_files = self._get_valid_files_from_subject(subject_path)
-                    self.test_files.extend(valid_files)
+            # Split train_valid_subjects into training and validation subjects
+            train_subjects, validation_subjects = train_test_split(train_valid_subjects, test_size=2, shuffle=True)
+
+            # Handle test files (only if they haven't been set)
+            if not self.test_files:
+                for subject in self.test_subjects:
+                    subject_path = os.path.join(treatment_path, subject)
+                    if os.path.isdir(subject_path):
+                        valid_files = self._get_valid_files_from_subject(subject_path)
+                        self.test_files.extend(valid_files)
 
             # Handle train files
             for subject in train_subjects:
@@ -248,7 +250,7 @@ class CustomDataLoaderWithSubjects:
                     valid_files = self._get_valid_files_from_subject(subject_path)
                     treatment_subject_files[treatment]["valid"].extend(valid_files)
 
-        return dict(treatment_subject_files) # Convert back to a standard dictionary for consistency
+        return dict(treatment_subject_files)
 
     def _get_valid_files_from_subject(self, subject_path):
         valid_files = [f for f in os.listdir(subject_path) if
@@ -272,6 +274,10 @@ class CustomDataLoaderWithSubjects:
         logging.info(f"Test files: {len(self.test_files)}")
 
     def next_fold(self):
+        # Reset only the train and validation files for the next fold
+        self.train_files = []
+        self.val_files = []
+        self.split_data_files()
         self.current_fold = (self.current_fold + 1) % self.num_folds
 
 
