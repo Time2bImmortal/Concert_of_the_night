@@ -33,8 +33,8 @@ if __name__ == '__main__':
     model = MFCC_CNN()
     model.to(device)
     loss_fn = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.0001)  # 0.0002 lr
-    scheduler = ReduceLROnPlateau(optimizer, 'min', patience=10, factor=0.8)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0002, weight_decay=0.00001)  # 0.0002 lr
+    # scheduler = ReduceLROnPlateau(optimizer, 'min', patience=10, factor=0.8)
 
     # Cross-Validation Loop
     for fold in range(data_loader.num_folds):
@@ -47,6 +47,7 @@ if __name__ == '__main__':
         train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=12)
         train_mean, train_std = compute_mean_std(train_loader)
         logging.info(f"Training set has been normalized")
+        directory = r"C:\Users\yfant\OneDrive\Desktop"
 
         # Load datasets with normalization
         train_dataset = CustomDataset(data_loader.train_files, labels=label_encoder, mean=train_mean, std=train_std)
@@ -59,8 +60,8 @@ if __name__ == '__main__':
         logging.info('Data has been loaded and ready to be processed.')
 
         trainer = Trainer(model, train_loader, val_loader, test_loader, optimizer, loss_fn, device)
-        trainer.train(n_epochs=10, best_accuracy=95, batch_size=BATCH_SIZE, num_files=NUM_FILES_PER_SUBJECT,
-                      folder_name=os.path.basename(folder_path))
+        trainer.train(n_epochs=5, best_accuracy=95, batch_size=BATCH_SIZE, num_files=NUM_FILES_PER_SUBJECT,
+                      folder_name=os.path.basename(folder_path), directory=directory)
 
         # Move to the next fold
         data_loader.next_fold()

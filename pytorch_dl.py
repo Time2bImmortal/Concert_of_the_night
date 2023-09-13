@@ -194,7 +194,7 @@ class CustomDataLoaderWithoutSubjects:
 
 class CustomDataLoaderWithSubjects:
     def __init__(self, folder_path, min_file_size=10000000, max_file_size=50000000,
-                 file_extension='.h5', num_files_per_subject=10, num_test_subjects=3, num_train_valid_subjects=6, num_folds=5):
+                 file_extension='.h5', num_files_per_subject=10, num_test_subjects=3, num_train_valid_subjects=6, num_folds=15):
         self.folder_path = folder_path
         self.min_file_size = min_file_size
         self.max_file_size = max_file_size
@@ -460,8 +460,23 @@ class Trainer:
         accuracy = 100. * sum(np.array(all_predictions) == np.array(all_true_labels)) / len(all_true_labels)
         return accuracy, all_predictions, all_true_labels
 
-    def train(self, n_epochs, best_accuracy, num_files, batch_size, folder_name):
-        directory = r"C:\Users\yfant\OneDrive\Desktop"  # Define your directory path here
+    def check_for_pause(self, epoch, pause_path, checkpoint_path):
+        if os.path.exists(pause_path):
+            self.save_checkpoint(epoch, checkpoint_path)
+            print(
+                f"Paused and saved at epoch {epoch}. To continue, remove the pause.txt file and start training again.")
+            return True
+        return False
+
+    def evaluate_test_set(self, result_dir, num_files, batch_size, folder_name):
+        test_accuracy, test_predictions, test_true_labels = self.evaluate(self.test_loader)
+        cm = confusion_matrix(test_true_labels, test_predictions)
+        plot_confusion_matrix(cm, result_dir=result_dir)
+        print(f"Final test accuracy: {test_accuracy:.2f}%")
+        self.plot_learning_curve(result_dir)
+        self.save_model(test_accuracy, num_files, batch_size, folder_name)
+
+    def train(self, n_epochs, best_accuracy, num_files, batch_size, folder_name, directory):
         pause_path = os.path.join(directory, "pause.txt")
         checkpoint_path = os.path.join(directory, "saved_training_step.pth")
 
@@ -471,18 +486,16 @@ class Trainer:
                 "A model already exists, let's continue with it (move it in another directory if you want to keep it"
                 "or erase it, I don't care, just do something with your pathetic life")
             checkpoint = torch.load(checkpoint_path)
-            model.load_state_dict(checkpoint['model_state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             start_epoch = checkpoint['epoch'] + 1
             self.train_losses = checkpoint.get('train_losses', [])
             self.train_accuracies = checkpoint.get('train_accuracies', [])
             self.val_accuracies = checkpoint.get('val_accuracies', [])
         else:
             start_epoch = 0
-
-        logging.info(f"Training started")
+        logging.info("Epochs loop starting...")
         for epoch in range(start_epoch, n_epochs):
-
             train_loss, train_accuracy = self.train_epoch()
             val_accuracy = self.evaluate(self.val_loader)[0]
             print(f"Epoch {epoch + 1}/{n_epochs}\t Training loss: {train_loss:.4f} | Training accuracy: "
@@ -494,31 +507,10 @@ class Trainer:
 
             if float(val_accuracy) >= best_accuracy:
                 print(f"Accuracy of {val_accuracy:.2f}% reached. Saving model...")
-                time.sleep(1)
-                test_accuracy, test_predictions, test_true_labels = self.evaluate(self.test_loader)
-                cm = confusion_matrix(test_true_labels, test_predictions)
-                plot_confusion_matrix(cm, result_dir=result_dir)
-                print(f"Final test accuracy after {epoch + 1} epochs: {test_accuracy:.2f}%")
-                time.sleep(1)
-                self.plot_learning_curve(result_dir)
-                self.save_model(val_accuracy, num_files, batch_size, folder_name)
+                self.evaluate_test_set(result_dir, num_files, batch_size, folder_name)
 
-            # Check for pause.txt at the end of each epoch
-            if os.path.exists(pause_path):
-                self.save_checkpoint(epoch, checkpoint_path)
-                print(
-                    f"Paused and saved at epoch {epoch}. To continue, remove the pause.txt file and start training again.")
+            if self.check_for_pause(epoch, pause_path, checkpoint_path):
                 break
-
-        # Final results on the test set
-        time.sleep(1)
-        test_accuracy, test_predictions, test_true_labels = self.evaluate(self.test_loader)
-        cm = confusion_matrix(test_true_labels, test_predictions)
-        plot_confusion_matrix(cm, result_dir=result_dir)
-        print(f"Final test accuracy after {n_epochs} epochs: {test_accuracy:.2f}%")
-        time.sleep(1)
-        self.plot_learning_curve(result_dir)
-        self.save_model(val_accuracy, num_files, batch_size, folder_name)
 
     def save_checkpoint(self, epoch, path):
         """Save current training state."""
