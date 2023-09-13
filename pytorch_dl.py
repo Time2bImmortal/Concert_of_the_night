@@ -397,12 +397,11 @@ class MFCC_CNN(nn.Module):
 
 
 class Trainer:
-    def __init__(self, model, train_loader, val_loader, test_loader, optimizer, loss_fn, device):
+    def __init__(self, model, train_loader, val_loader, optimizer, loss_fn, device):
         logging.info(f"Training initialized ...")
         self.model = model
         self.train_loader = train_loader
         self.val_loader = val_loader
-        self.test_loader = test_loader
         self.optimizer = optimizer
         self.loss_fn = loss_fn
         self.device = device
@@ -444,12 +443,12 @@ class Trainer:
 
         return total_loss / (batch_idx + 1), accuracy
 
-    def evaluate(self, loader):
+    def evaluate(self, test_loader):
         self.model.eval()
         all_predictions = []
         all_true_labels = []
         with torch.no_grad():
-            for data, target in loader:
+            for data, target in test_loader:
                 data, target = data.to(self.device), target.to(self.device)
                 outputs = self.model(data)
                 _, predicted = outputs.max(1)

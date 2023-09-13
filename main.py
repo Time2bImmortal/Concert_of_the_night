@@ -76,6 +76,5 @@ if __name__ == '__main__':
     model.load_state_dict(best_fold_model_state)
     test_dataset = CustomDataset(data_loader.test_files, labels=label_encoder, mean=train_mean, std=train_std)
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
-    trainer = Trainer(model, None, None, test_loader, optimizer, loss_fn, device)
     test_accuracy, _, _ = trainer.evaluate(test_loader)
     logging.info(f"Final test accuracy using best fold: {test_accuracy:.2f}%")
