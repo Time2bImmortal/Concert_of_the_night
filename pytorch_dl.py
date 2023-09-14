@@ -451,6 +451,124 @@ class MFCC_CNN(nn.Module):
         x = self.pool(F.relu(self.conv3(x)))
         return x
 
+    # class MFCC_CNN(nn.Module):
+    #     def __init__(self):
+    #         super(MFCC_CNN, self).__init__()
+    #
+    #         # Convolution layers
+    #         self.conv1 = nn.Conv2d(1, 32, kernel_size=(12, 22), stride=(2, 2), padding=(6, 11))
+    #         self.bn1 = nn.BatchNorm2d(32)
+    #         self.dropout_conv1 = nn.Dropout(0.5)
+    #
+    #         self.conv2 = nn.Conv2d(32, 64, kernel_size=(12, 22), stride=(2, 2), padding=(6, 11))
+    #         self.bn2 = nn.BatchNorm2d(64)
+    #         self.dropout_conv2 = nn.Dropout(0.5)
+    #
+    #         self.conv3 = nn.Conv2d(64, 128, kernel_size=(12, 22), stride=(2, 2), padding=(6, 11))
+    #         self.bn3 = nn.BatchNorm2d(128)
+    #
+    #         # Max pooling layer
+    #         self.pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
+    #
+    #         # Compute the output size after convolution and pooling layers to use in the FC layer
+    #         self.fc_input_dim = self._get_conv_output((1, 39, 2584))
+    #
+    #         # Fully connected layers
+    #         self.fc1 = nn.Linear(self.fc_input_dim, 256)
+    #         self.fc2 = nn.Linear(256, 4)
+    #
+    #         # Dropout layer
+    #         self.dropout = nn.Dropout(0.4)
+    #
+    #     def forward(self, x):
+    #         x = x.unsqueeze(1)
+    #
+    #         x = self.dropout_conv1(self.pool(F.relu(self.bn1(self.conv1(x)))))
+    #         x = self.dropout_conv2(self.pool(F.relu(self.bn2(self.conv2(x)))))
+    #         x = self.pool(F.relu(self.bn3(self.conv3(x))))
+    #
+    #         x = torch.mean(x, dim=[2, 3])  # GAP layer
+    #         x = x.view(x.size(0), -1)
+    #
+    #         x = F.relu(self.fc1(x))
+    #         x = self.dropout(x)
+    #         x = self.fc2(x)
+    #
+    #         return x
+    #
+    #     # Helper function to calculate the number of units in the Fully Connected layer
+    #     def _get_conv_output(self, shape):
+    #         bs = 1
+    #         input_tensor = torch.rand(bs, *shape)
+    #         output_feat = self._forward_features(input_tensor)
+    #         n_size = output_feat.data.view(bs, -1).size(1)
+    #         return n_size
+    #
+    #     def _forward_features(self, x):
+    #         x = self.pool(F.relu(self.conv1(x)))
+    #         x = self.pool(F.relu(self.conv2(x)))
+    #         x = self.pool(F.relu(self.conv3(x)))
+    #         return x
+
+
+class MFCC_CNN(nn.Module):
+    def __init__(self):
+        super(MFCC_CNN, self).__init__()
+
+        # Convolution layers
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=(12, 22), stride=(2, 2), padding=(6, 11))
+        self.bn1 = nn.BatchNorm2d(32)
+        self.dropout_conv1 = nn.Dropout(0.5)
+
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=(12, 22), stride=(2, 2), padding=(6, 11))
+        self.bn2 = nn.BatchNorm2d(64)
+        self.dropout_conv2 = nn.Dropout(0.5)
+
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=(12, 22), stride=(2, 2), padding=(6, 11))
+        self.bn3 = nn.BatchNorm2d(128)
+
+        # Max pooling layer
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
+
+        # Compute the output size after convolution and pooling layers to use in the FC layer
+        self.fc_input_dim = self._get_conv_output((1, 39, 2584))
+
+        # Fully connected layers
+        self.fc1 = nn.Linear(self.fc_input_dim, 256)
+        self.fc2 = nn.Linear(256, 4)
+
+        # Dropout layer
+        self.dropout = nn.Dropout(0.4)
+
+    def forward(self, x):
+        x = x.unsqueeze(1)
+
+        x = self.dropout_conv1(self.pool(F.relu(self.bn1(self.conv1(x)))))
+        x = self.dropout_conv2(self.pool(F.relu(self.bn2(self.conv2(x)))))
+        x = self.pool(F.relu(self.bn3(self.conv3(x))))
+
+        x = torch.mean(x, dim=[2, 3])  # GAP layer
+        x = x.view(x.size(0), -1)
+
+        x = F.relu(self.fc1(x))
+        x = self.dropout(x)
+        x = self.fc2(x)
+
+        return x
+
+    # Helper function to calculate the number of units in the Fully Connected layer
+    def _get_conv_output(self, shape):
+        bs = 1
+        input_tensor = torch.rand(bs, *shape)
+        output_feat = self._forward_features(input_tensor)
+        n_size = output_feat.data.view(bs, -1).size(1)
+        return n_size
+
+    def _forward_features(self, x):
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = self.pool(F.relu(self.conv3(x)))
+        return x
 
 class Trainer:
     def __init__(self, model, train_loader, val_loader, optimizer, loss_fn, device):
