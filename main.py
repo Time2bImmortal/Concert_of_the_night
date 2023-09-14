@@ -10,7 +10,7 @@ if __name__ == '__main__':
 
     # Constants
     labels_encoding = ['LD', '2lux', '5lux', 'LL'] # it can be somewhat confusing because I encoded it with 1,2,3,4 previously
-    BATCH_SIZE = 20
+    BATCH_SIZE = 30
     NUM_FILES_PER_SUBJECT = 10
 
     folder_path = filedialog.askdirectory()
@@ -62,7 +62,7 @@ if __name__ == '__main__':
         logging.info('Data has been loaded and ready to be processed.')
 
         trainer = Trainer(model, train_loader, val_loader, optimizer, loss_fn, device)
-        trainer.train(n_epochs=5, best_accuracy=95, batch_size=BATCH_SIZE, num_files=NUM_FILES_PER_SUBJECT,
+        trainer.train(n_epochs=30, best_accuracy=95, batch_size=BATCH_SIZE, num_files=NUM_FILES_PER_SUBJECT,
                       folder_name=os.path.basename(folder_path), directory=directory)
 
         if max(trainer.val_accuracies) > best_fold_accuracy:

@@ -337,35 +337,91 @@ class MFCC_Transformer(nn.Module):
         return pe
 
 
+# class MFCC_CNN(nn.Module):
+#     def __init__(self):
+#         super(MFCC_CNN, self).__init__()
+#
+#         # Convolution layers
+#         self.conv1 = nn.Conv2d(1, 32, kernel_size=(5, 10), stride=1, padding=(2, 5))
+#         self.bn1 = nn.BatchNorm2d(32)  # Batch Normalization after conv1
+#         self.dropout_conv1 = nn.Dropout(0.5) # 0.5
+#         self.conv2 = nn.Conv2d(32, 64, kernel_size=(5, 10), stride=1, padding=(2, 5))
+#         self.bn2 = nn.BatchNorm2d(64)  # Batch Normalization after conv2
+#         self.dropout_conv2 = nn.Dropout(0.5) # 0.5
+#         self.conv3 = nn.Conv2d(64, 128, kernel_size=(5, 10), stride=1, padding=(2, 5))
+#         self.bn3 = nn.BatchNorm2d(128)  # Batch Normalization after conv3
+#
+#         # Max pooling layer
+#         self.pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
+#
+#         # Compute the output size after convolution and pooling layers to use in the FC layer
+#         # self.fc_input_dim = self._get_conv_output((1, 39, 2584))
+#         self.fc_input_dim = self._get_conv_output((1, 39, 2584))
+#         # self.attention = SelfAttention(self.fc_input_dim, attention_dim=128)
+#         # Fully connected layers
+#         # self.fc1 = nn.Linear(128, 512)
+#         # self.fc2 = nn.Linear(512, 4)
+#         self.fc1 = nn.Linear(self.fc_input_dim, 512)
+#         self.fc2 = nn.Linear(512, 4)
+#
+#         # Dropout layer
+#         self.dropout = nn.Dropout(0.4) #0.4
+#
+#     def forward(self, x):
+#         x = x.unsqueeze(1)
+#
+#         x = self.dropout_conv1(self.pool(F.relu(self.bn1(self.conv1(x)))))
+#         x = self.dropout_conv2(self.pool(F.relu(self.bn2(self.conv2(x)))))
+#         x = self.pool(F.relu(self.bn3(self.conv3(x))))
+#
+#         x = x.view(x.size(0), -1)
+#         x = F.relu(self.fc1(x))
+#         x = self.dropout(x)
+#         x = self.fc2(x)
+#
+#         return x
+#
+#     # Helper function to calculate the number of units in the Fully Connected layer
+#     def _get_conv_output(self, shape):
+#         bs = 1
+#         input_tensor = torch.rand(bs, *shape)
+#         output_feat = self._forward_features(input_tensor)
+#         n_size = output_feat.data.view(bs, -1).size(1)
+#         return n_size
+#
+#     def _forward_features(self, x):
+#         x = self.pool(F.relu(self.conv1(x)))
+#         x = self.pool(F.relu(self.conv2(x)))
+#         x = self.pool(F.relu(self.conv3(x)))
+#         return x
 class MFCC_CNN(nn.Module):
     def __init__(self):
         super(MFCC_CNN, self).__init__()
 
         # Convolution layers
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=(5, 10), stride=1, padding=(2, 5))
-        self.bn1 = nn.BatchNorm2d(32)  # Batch Normalization after conv1
-        self.dropout_conv1 = nn.Dropout(0.1) # 0.5
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=(5, 10), stride=1, padding=(2, 5))
-        self.bn2 = nn.BatchNorm2d(64)  # Batch Normalization after conv2
-        self.dropout_conv2 = nn.Dropout(0.1) # 0.5
-        self.conv3 = nn.Conv2d(64, 128, kernel_size=(5, 10), stride=1, padding=(2, 5))
-        self.bn3 = nn.BatchNorm2d(128)  # Batch Normalization after conv3
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=(10, 20), stride=(2, 2), padding=(5, 10))
+        self.bn1 = nn.BatchNorm2d(32)
+        self.dropout_conv1 = nn.Dropout(0.5)
+
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=(10, 20), stride=(2, 2), padding=(5, 10))
+        self.bn2 = nn.BatchNorm2d(64)
+        self.dropout_conv2 = nn.Dropout(0.5)
+
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=(10, 20), stride=(2, 2), padding=(5, 10))
+        self.bn3 = nn.BatchNorm2d(128)
 
         # Max pooling layer
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
 
         # Compute the output size after convolution and pooling layers to use in the FC layer
-        # self.fc_input_dim = self._get_conv_output((1, 39, 2584))
         self.fc_input_dim = self._get_conv_output((1, 39, 2584))
-        # self.attention = SelfAttention(self.fc_input_dim, attention_dim=128)
+
         # Fully connected layers
-        # self.fc1 = nn.Linear(128, 512)
-        # self.fc2 = nn.Linear(512, 4)
         self.fc1 = nn.Linear(self.fc_input_dim, 512)
         self.fc2 = nn.Linear(512, 4)
 
         # Dropout layer
-        self.dropout = nn.Dropout(0.1) #0.4
+        self.dropout = nn.Dropout(0.4)
 
     def forward(self, x):
         x = x.unsqueeze(1)
@@ -637,7 +693,7 @@ if __name__ == '__main__':
     model =MFCC_CNN()
     model.to(device)
     loss_fn = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.0001)  # 0.0002 lr
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0002, weight_decay=0.00001)  # 0.0002 lr
     scheduler = ReduceLROnPlateau(optimizer, 'min', patience=10, factor=0.8)
 
     trainer = Trainer(model, train_loader, val_loader, test_loader, optimizer, loss_fn, device)
