@@ -9,30 +9,30 @@ import os
 import shutil
 import matplotlib.pyplot as plt
 
-def process_directory(source_root, dest_root, threshold=0.01):
-    for dirpath, dirnames, filenames in os.walk(source_root):
-        for filename in filenames:
-            logging.info(f'Process {filename}')
-            source_file_path = os.path.join(dirpath, filename)
-
-            if source_file_path.endswith('.wav') and is_valid_audio(source_file_path, threshold):
-                # Determine its top-level folder
-                relative_path = os.path.relpath(dirpath, source_root)
-                top_level_folder = relative_path.split(os.sep)[0]
-
-                dest_folder_path = os.path.join(dest_root, top_level_folder)  # Removed "_filtered" from here
-
-                if not os.path.exists(dest_folder_path):
-                    os.makedirs(dest_folder_path)
-
-                dest_file_path = os.path.join(dest_folder_path, filename)
-
-                # Check if the file already exists in the destination path
-                if os.path.exists(dest_file_path):
-                    logging.info(f'{filename} already exists in the destination. Skipping.')
-                    continue
-
-                shutil.copy2(source_file_path, dest_file_path)
+# def process_directory(source_root, dest_root, threshold=0.01):
+#     for dirpath, dirnames, filenames in os.walk(source_root):
+#         for filename in filenames:
+#             logging.info(f'Process {filename}')
+#             source_file_path = os.path.join(dirpath, filename)
+#
+#             if source_file_path.endswith('.wav') and is_valid_audio(source_file_path, threshold):
+#                 # Determine its top-level folder
+#                 relative_path = os.path.relpath(dirpath, source_root)
+#                 top_level_folder = relative_path.split(os.sep)[0]
+#
+#                 dest_folder_path = os.path.join(dest_root, top_level_folder)  # Removed "_filtered" from here
+#
+#                 if not os.path.exists(dest_folder_path):
+#                     os.makedirs(dest_folder_path)
+#
+#                 dest_file_path = os.path.join(dest_folder_path, filename)
+#
+#                 # Check if the file already exists in the destination path
+#                 if os.path.exists(dest_file_path):
+#                     logging.info(f'{filename} already exists in the destination. Skipping.')
+#                     continue
+#
+#                 shutil.copy2(source_file_path, dest_file_path)
 def select_audio_file():
 
     root = Tk()
