@@ -10,7 +10,8 @@ import warnings
 warnings.filterwarnings("ignore", message="loaded more than 1 DLL from .libs:")
 warnings.filterwarnings('ignore', category=UserWarning, module='numpy')
 import h5py
-
+import shutil
+import  re
 class PathManager:
     def __init__(self):
         self.source = self.choose_source()
@@ -19,8 +20,8 @@ class PathManager:
         self.valid_extension = '.wav'
         self.threshold = 0.01
         self.above_threshold_duration = 300
-        self.required_num_files = 10
-        self.feature_to_extract = 'mfccs_and_derivatives'
+        self.required_num_files = 8
+        self.feature_to_extract = 'spectrogram'
         self.treatment_mapping = {
             "Gb12": "LD",
             "Gb24": "LL",
@@ -69,7 +70,7 @@ class PathManager:
         return samples_above_threshold / sr
 
     def _is_valid_audio(self, file_path):
-        y, sr = librosa.load(file_path, sr=None)
+        y, sr = librosa.load(file_path, sr=44100)
         return self._duration_above_amplitude_simple(y, sr) >= self.above_threshold_duration
 
     def find_valid_folders(self, file):
@@ -83,18 +84,17 @@ class PathManager:
 
             valid_files_paths = []
             for file_name in wav_files:
-                if len(valid_files_paths) > 2 * self.required_num_files:
+                if len(valid_files_paths) > self.required_num_files:
                     break
 
                 full_path = os.path.join(root, file_name)
-                if (self._check_file_size(full_path) and self._is_valid_audio(full_path)):
+                if self._check_file_size(full_path) and self._is_valid_audio(full_path):
                     valid_files_paths.append(full_path)
 
             if len(valid_files_paths) >= self.required_num_files:
                 print(f"Number of valid files in {root}: {len(valid_files_paths)}")
                 for valid_path in valid_files_paths:
                     file.write(valid_path + '\n')
-
 
     def _read_paths_from_file(self, filepath):
         with open(filepath, 'r') as file:
@@ -103,8 +103,13 @@ class PathManager:
         return paths
 
     def get_treatment(self, path):
-        base_name = os.path.basename(path).split('.')[0]  # Remove extension to get the name
-        return self.treatment_mapping.get(base_name, None)
+        # Iterate through all possible treatment codes
+        for code, treatment in self.treatment_mapping.items():
+            # If code is found anywhere in the path, return the corresponding treatment
+            if code in path:
+                return treatment
+        # If no code is found, return None
+        return None
 
     def create_feature_and_treatment_folders(self):
 
@@ -155,12 +160,46 @@ class PathManager:
     def get_paths(self):
         return self.paths
 
+    def organize_valid_files(self, destination_folder):
+        os.makedirs(destination_folder, exist_ok=True)
+
+        if os.path.isfile(self.source) and self.source.endswith('.txt'):
+            paths = self._read_paths_from_file(self.source)
+        else:
+            raise ValueError("The provided source must be a valid text file.")
+
+        for path in paths:
+            subject = self.extract_subject_info(path)
+            treatment = self.get_treatment(path)
+            if treatment:
+                target_folder = os.path.join(destination_folder, treatment, subject)
+                os.makedirs(target_folder, exist_ok=True)
+                shutil.copy2(path, target_folder)
+            else:
+                print(f"Skipping {path}: Unable to determine treatment.")
+
+    def extract_subject_info(self, path):
+        # Define a regex pattern to extract 8 characters before '/raven.' or '\raven.'
+        pattern = re.compile(r'(.{8})[\\/](raven\.)')
+
+        # Search for the pattern in the path
+        match = pattern.search(path)
+
+        if match:
+            # Extract and return the matched subject info
+            subject_info = match.group(1)
+            return subject_info
+        else:
+            # Handle case where the pattern is not found
+            print(f"Warning: Expected pattern not found in {path}.")
+            return None
+
 
 class AudioProcessor:
-    N_MFCC = 13
-    FRAME_SIZE = 2048
-    HOP_LENGTH = 1024
-    NUM_SEGMENTS = 30
+    N_MFCC = 5
+    FRAME_SIZE = 1024
+    HOP_LENGTH = int(FRAME_SIZE*0.75)
+    NUM_SEGMENTS = 200
     SAMPLE_RATE = 44100
 
     def __init__(self, feature: str):
@@ -212,6 +251,12 @@ class AudioProcessor:
         if len(segment_signal) == 0:
             print(f"Empty segment signal at segment {s} of file {filename}. Skipping this segment.")
             return None
+        samples_above_threshold = np.sum(np.abs(segment_signal) > 0.01)
+
+        if samples_above_threshold < (0.3 * len(segment_signal)):  # You can adjust this value based on your requirement
+            print(
+                f"More than half of the segment {s} of file {filename} is below the threshold. Skipping this segment.")
+            return None
         return segment_signal
 
     def get_directory_info(self, file_path, treatment):
@@ -257,6 +302,8 @@ class AudioProcessor:
             expected_shape = (self.N_MFCC, math.ceil(num_samples_per_segment / self.HOP_LENGTH))
         elif self.feature in ["ae", "rms", "zcr", "ber", 'sc', 'bw']:
             expected_shape = (1, math.ceil(num_samples_per_segment / self.HOP_LENGTH))
+        elif self.feature in ["chroma"]:
+            expected_shape = (12, math.ceil(num_samples_per_segment / self.HOP_LENGTH))
         elif self.feature in ['mfccs_and_derivatives']:
             expected_shape = (self.N_MFCC*3, math.ceil(num_samples_per_segment / self.HOP_LENGTH))
         else:
@@ -278,11 +325,20 @@ class AudioProcessor:
             combined = np.vstack([mfccs, mfcc_delta, mfcc_delta2])
             return combined
 
+        elif self.feature == "chroma":
+            return librosa.feature.chroma_stft(y=signal, sr=self.SAMPLE_RATE, n_fft=self.FRAME_SIZE,
+                                               hop_length=self.HOP_LENGTH)
+
+
         elif self.feature == "spectrogram":
+
             S_complex = librosa.stft(signal, hop_length=self.HOP_LENGTH, n_fft=self.FRAME_SIZE)
-            spectrogram = np.abs(S_complex)
+            spectrogram = np.abs(S_complex) + 1e-5  # Adding a small constant to avoid log(0)
             log_spectrogram = librosa.amplitude_to_db(spectrogram)
-            return log_spectrogram
+            normalized_log_spectrogram = (log_spectrogram - np.min(log_spectrogram)) / (
+                        np.max(log_spectrogram) - np.min(log_spectrogram))  # Normalization
+            print(normalized_log_spectrogram.shape)
+            return normalized_log_spectrogram
         elif self.feature == "mel_spectrogram":
             S = librosa.feature.melspectrogram(y=signal, sr=self.SAMPLE_RATE)
             S_dB = librosa.power_to_db(S, ref=np.max)
@@ -324,4 +380,6 @@ class AudioProcessor:
 
 if __name__ == '__main__':
     path_manager = PathManager()
-
+    destination_folder = filedialog.askdirectory()
+    path_manager.organize_valid_files(destination_folder)
+    # path_manager.distribute_paths_to_processes()

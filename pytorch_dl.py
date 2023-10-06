@@ -516,15 +516,15 @@ class MFCC_CNN(nn.Module):
         super(MFCC_CNN, self).__init__()
 
         # Convolution layers
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=(12, 22), stride=(2, 2), padding=(6, 11))
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=(20, 40), stride=(2, 2), padding=(10, 20))
         self.bn1 = nn.BatchNorm2d(32)
         self.dropout_conv1 = nn.Dropout(0.5)
 
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=(12, 22), stride=(2, 2), padding=(6, 11))
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=(20, 40), stride=(2, 2), padding=(10, 20))
         self.bn2 = nn.BatchNorm2d(64)
         self.dropout_conv2 = nn.Dropout(0.5)
 
-        self.conv3 = nn.Conv2d(64, 128, kernel_size=(12, 22), stride=(2, 2), padding=(6, 11))
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=(20, 40), stride=(2, 2), padding=(10, 20))
         self.bn3 = nn.BatchNorm2d(128)
 
         # Max pooling layer
@@ -561,6 +561,7 @@ class MFCC_CNN(nn.Module):
         bs = 1
         input_tensor = torch.rand(bs, *shape)
         output_feat = self._forward_features(input_tensor)
+        output_feat = torch.mean(output_feat, dim=[2, 3])  # GAP layer
         n_size = output_feat.data.view(bs, -1).size(1)
         return n_size
 

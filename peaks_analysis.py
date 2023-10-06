@@ -90,11 +90,38 @@ def visualize_mfcc(y, sr, n_mfcc=13):
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO)
-    # folder_to_filter = filedialog.askdirectory()
-    # folder_to_copy = folder_to_filter + '_filtered'
-    # process_directory(folder_to_filter, folder_to_copy)
-    file_to_analyze = filedialog.askopenfilename()
+    Tk().withdraw()
+    filename = filedialog.askopenfilename()
 
-    signal, sr = load_audio(file_to_analyze)
-    visualize_mfcc(signal, sr)
+    y, sr = librosa.load(filename, sr=None)
+
+    # Select 1/30 of the audio file
+    portion_len = len(y) // 30
+    y = y[:portion_len]
+    print('signal', y.shape)
+    # Simple Spectrogram
+    plt.figure(figsize=(12, 8))
+
+    D = np.abs(librosa.stft(y))
+    print('spectrogram', D.shape)
+    librosa.display.specshow(D, sr=sr, x_axis='time', y_axis='linear')
+    plt.title('Spectrogram')
+    plt.show()
+    # Mel Spectrogram
+    plt.subplot(3, 1, 2)
+    mel_spec = librosa.feature.melspectrogram(y=y, sr=sr)
+    print('melspec', mel_spec.shape)
+    librosa.display.specshow(mel_spec, sr=sr, x_axis='time', y_axis='mel')
+
+    plt.title('Mel Spectrogram')
+    plt.show()
+    # Mel Spectrogram in dB
+    plt.subplot(3, 1, 3)
+    mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
+    print('melspecdb', mel_spec_db.shape)
+    librosa.display.specshow(mel_spec_db, sr=sr, x_axis='time', y_axis='mel')
+    plt.colorbar(format='%+2.0f dB')
+    plt.title('Mel Spectrogram (dB)')
+
+    plt.tight_layout()
+    plt.show()
