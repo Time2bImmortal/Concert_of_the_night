@@ -17,18 +17,7 @@ import logging
 from collections import defaultdict
 from itertools import combinations
 
-def set_seed(seed_value=42):
-    """Set seed for reproducibility."""
-    random.seed(seed_value)
-    np.random.seed(seed_value)
-    torch.manual_seed(seed_value)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed_value)
-        torch.cuda.manual_seed_all(seed_value)  # if you are using multi-GPU.
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
 
-        
 def plot_confusion_matrix(cm, result_dir, title='Confusion matrix'):
     # The treatments_indices dictionary
     treatments_indices = {'2': 'LD', '0': '2lux', '1': '5lux', '3': 'LL'}
@@ -57,7 +46,6 @@ def compute_mean_std(loader):
     for idx, (data, _) in enumerate(loader):
         if idx % 100 == 0:  # Print every 100 batches
             print(f"Processing batch {idx + 1}...")
-        time.sleep(1)
         batch_samples = data.size(0)
         data = data.view(batch_samples, data.size(1), -1)
         mean += data.mean(2).sum(0)
@@ -71,69 +59,136 @@ def compute_mean_std(loader):
     return mean, std
 
 
+# class CustomDataset(Dataset):
+#     def __init__(self, file_paths, labels=None, mean=None, std=None, shuffle_labels=False):
+#         self.file_paths = file_paths
+#         self.mean = mean
+#         self.std = std
+#         self.label_encoder = labels
+#         self.shuffle_labels = shuffle_labels
+#
+#         # Extract all labels first if shuffle_labels is True
+#         if self.shuffle_labels:
+#             all_labels = []
+#             for path in self.file_paths:
+#                 with h5py.File(path, 'r') as h5_file:
+#                     all_labels.extend(h5_file['labels'][:])
+#             random.shuffle(all_labels)
+#             self.shuffled_labels = all_labels
+#
+#         # Dynamically determine the number of MFCCs using the first file
+#         with h5py.File(self.file_paths[0], 'r') as h5_file:
+#             mfcc_data = h5_file['mfcc'][:]
+#         self.mfccs_per_file = len(mfcc_data)
+#
+#     def __len__(self):
+#         return len(self.file_paths) * self.mfccs_per_file
+#
+#     def __getitem__(self, idx):
+#         # Calculate the file index and the mfcc index within that file
+#         file_idx = idx // self.mfccs_per_file
+#         mfcc_idx = idx % self.mfccs_per_file
+#         file_path = self.file_paths[file_idx]
+#
+#         try:
+#             with h5py.File(file_path, 'r') as h5_file:
+#                 mfcc_data = h5_file['mfcc'][mfcc_idx]
+#
+#                 if self.shuffle_labels:
+#                     label_data = self.shuffled_labels[idx]
+#                 else:
+#                     label_data = h5_file['labels'][0]
+#
+#             if isinstance(label_data, bytes):
+#                 label_data = label_data.decode('utf-8')
+#
+#             # Transform the label using the already fitted label_encoder
+#             if self.label_encoder is not None:
+#                 label = self.label_encoder.transform([label_data])[0]
+#             else:
+#                 label = label_data
+#
+#             tensor_mfcc = torch.tensor(mfcc_data, dtype=torch.float32)
+#
+#             if self.mean is not None and self.std is not None:
+#                 # Convert mean and std to tensors if they are not
+#                 if not torch.is_tensor(self.mean):
+#                     self.mean = torch.tensor(self.mean, dtype=torch.float32)
+#                 if not torch.is_tensor(self.std):
+#                     self.std = torch.tensor(self.std, dtype=torch.float32)
+#
+#                 tensor_mfcc = (tensor_mfcc - self.mean[:, None]) / self.std[:, None]
+#
+#             tensor_label = torch.tensor(label, dtype=torch.long)
+#             return tensor_mfcc, tensor_label
+#
+#         except Exception as e:
+#             print(f"Error processing file at path {file_path}: {e}")
+#             # If you have a default or dummy tensor to return in case of error, do that here.
+#             # Otherwise, raise the exception to stop the process.
+#             raise e
 class CustomDataset(Dataset):
-    def __init__(self, file_paths, labels=None, mean=None, std=None, shuffle_labels=False):
+    def __init__(self, file_paths, feature_name, labels=None, mean=None, std=None, shuffle_labels=False):
         self.file_paths = file_paths
+        self.feature_name = feature_name  # Added feature name
         self.mean = mean
         self.std = std
         self.label_encoder = labels
         self.shuffle_labels = shuffle_labels
+        self.valid_indices = []
 
-        # Extract all labels first if shuffle_labels is True
+        # Scan through the files to find valid (non-None) features and their corresponding indices
+        for file_idx, path in enumerate(self.file_paths):
+            with h5py.File(path, 'r') as h5_file:
+                for feature_idx, feature in enumerate(h5_file[self.feature_name]):
+                    if feature is not None:  # Only keep indices for non-None features
+                        self.valid_indices.append((file_idx, feature_idx))
+
+        # If labels need to be shuffled, do so
         if self.shuffle_labels:
-            all_labels = []
-            for path in self.file_paths:
-                with h5py.File(path, 'r') as h5_file:
-                    all_labels.extend(h5_file['labels'][:])
-            # repeating the label 30 times for each file
-            # Shuffle the extracted labels
-            random.shuffle(all_labels)
-            self.shuffled_labels = all_labels
+            random.shuffle(self.valid_indices)  # Note: this shuffles the features too
 
-        # Dynamically determine the number of MFCCs using the first file
-        with h5py.File(self.file_paths[0], 'r') as h5_file:
-            mfcc_data = h5_file['mfccs_and_derivatives'][:]
-        self.mfccs_per_file = len(mfcc_data)
+        self.feature_shape = self.get_feature_shape()
 
     def __len__(self):
-        return len(self.file_paths) * self.mfccs_per_file
+        return len(self.valid_indices)
 
     def __getitem__(self, idx):
-        # Calculate the file index and the mfcc index within that file
-        file_idx = idx // self.mfccs_per_file
-        mfcc_idx = idx % self.mfccs_per_file
+        file_idx, feature_idx = self.valid_indices[idx]
+        file_path = self.file_paths[file_idx]
 
-        with h5py.File(self.file_paths[file_idx], 'r') as h5_file:
-            mfcc_data = h5_file['mfccs_and_derivatives'][mfcc_idx]
-            if self.shuffle_labels:
-                label_data = self.shuffled_labels[idx]
+        with h5py.File(file_path, 'r') as h5_file:
+            feature_data = h5_file[self.feature_name][feature_idx]
+            label_data = h5_file['labels'][feature_idx]
+
+            if isinstance(label_data, bytes):
+                label_data = label_data.decode('utf-8')
+
+            if self.label_encoder is not None:
+                label = self.label_encoder.transform([label_data])[0]
             else:
-                label_data = h5_file['labels'][0]
+                label = label_data
 
-        if isinstance(label_data, bytes):
-            label_data = label_data.decode('utf-8')
+            tensor_feature = torch.tensor(feature_data, dtype=torch.float32)
 
-        # Transform the label using the already fitted label_encoder
-        if self.label_encoder is not None:
-            label = self.label_encoder.transform([label_data])[0]
-        else:
-            label = label_data
+            if self.mean is not None and self.std is not None:
+                if not torch.is_tensor(self.mean):
+                    self.mean = torch.tensor(self.mean, dtype=torch.float32)
+                if not torch.is_tensor(self.std):
+                    self.std = torch.tensor(self.std, dtype=torch.float32)
 
-        tensor_mfcc = torch.tensor(mfcc_data, dtype=torch.float32)
+                tensor_feature = (tensor_feature - self.mean[:, None]) / self.std[:, None]
 
-        if self.mean is not None and self.std is not None:
-            # Convert mean and std to tensors if they are not
-            if not torch.is_tensor(self.mean):
-                self.mean = torch.tensor(self.mean, dtype=torch.float32)
-            if not torch.is_tensor(self.std):
-                self.std = torch.tensor(self.std, dtype=torch.float32)
+            tensor_label = torch.tensor(label, dtype=torch.long)
 
-            tensor_mfcc = (tensor_mfcc - self.mean[:, None]) / self.std[:, None]
+            return tensor_feature, tensor_label
 
-        tensor_label = torch.tensor(label, dtype=torch.long)
-        return tensor_mfcc, tensor_label
-
-
+    def get_feature_shape(self):
+        # Retrieve the shape of the first valid feature
+        for file_idx, feature_idx in self.valid_indices:
+            with h5py.File(self.file_paths[file_idx], 'r') as h5_file:
+                feature_data = h5_file[self.feature_name][feature_idx]
+                return feature_data.shape
 class CustomDataLoaderWithoutSubjects:
     def __init__(self, folder_path, min_file_size=10000000, max_file_size=50000000,
                  file_extension='.h5', test_size=0.1, valid_size=0.2, num_files_per_treatment=185):
@@ -189,8 +244,8 @@ class CustomDataLoaderWithoutSubjects:
 
 
 class CustomDataLoaderWithSubjects:
-    def __init__(self, folder_path, result_dir, min_file_size=10000000, max_file_size=50000000,
-                 file_extension='.h5', num_files_per_subject=10, num_test_subjects=3, num_train_valid_subjects=6, num_folds=10):
+    def __init__(self, folder_path, result_dir, min_file_size=0, max_file_size=250000000,
+                 file_extension='.h5', num_files_per_subject=9, num_test_subjects=2, num_train_valid_subjects=7, num_folds=1):
         self.folder_path = folder_path
         self.result_dir = result_dir
         self.min_file_size = min_file_size
@@ -221,13 +276,10 @@ class CustomDataLoaderWithSubjects:
             subjects = subjects[:9]
             train_valid_subjects, test_subjects = train_test_split(subjects, test_size=self.num_test_subjects)
 
-            self.train_valid_subjects_dict[treatment] = train_valid_subjects
             self.test_subjects_dict[treatment] = test_subjects
 
-            all_combinations = list(combinations(train_valid_subjects, 4))
-            if len(all_combinations) > self.num_folds:
-                all_combinations = random.sample(all_combinations, self.num_folds)
-            self.train_valid_combinations[treatment] = all_combinations
+            all_permutations = [random.sample(train_valid_subjects, len(train_valid_subjects)) for _ in range(self.num_folds)]
+            self.train_valid_combinations[treatment] = all_permutations
         for treatment, subjects in self.test_subjects_dict.items():
             treatment_path = os.path.join(self.folder_path, treatment)
             for subject in subjects:
@@ -247,9 +299,8 @@ class CustomDataLoaderWithSubjects:
 
         for treatment in self.train_valid_combinations:
             treatment_path = os.path.join(self.folder_path, treatment)
-            train_subjects = self.train_valid_combinations[treatment][self.current_fold]
-            validation_subjects = [subject for subject in self.train_valid_subjects_dict[treatment] if
-                                   subject not in train_subjects]
+            train_subjects = self.train_valid_combinations[treatment][self.current_fold][:5]
+            validation_subjects = self.train_valid_combinations[treatment][self.current_fold][5:]
 
             for subject in train_subjects:
                 subject_path = os.path.join(treatment_path, subject)
@@ -264,7 +315,7 @@ class CustomDataLoaderWithSubjects:
         self._write_subjects_to_file()
 
     def next_fold(self):
-        self.current_fold = (self.current_fold + 1) % self.num_folds
+        self.current_fold = self.current_fold + 1
         self.split_data_files()
 
     def _write_subjects_to_file(self):
@@ -272,52 +323,43 @@ class CustomDataLoaderWithSubjects:
             log_file.write(f"Fold {self.current_fold + 1}/{self.num_folds}\n")
             log_file.write("Test subjects:\n")
             for treatment, subjects in self.test_subjects_dict.items():
-                log_file.write(f"{treatment}: {', '.join(subjects)}\n")
+                short_subjects = [subject[-8:] for subject in subjects]
+                log_file.write(f"{treatment}: {', '.join(short_subjects)}\n")
 
             for treatment in self.train_valid_combinations:
-                train_subjects = self.train_valid_combinations[treatment][self.current_fold]
-                validation_subjects = [subject for subject in self.train_valid_subjects_dict[treatment] if
-                                       subject not in train_subjects]
+                # Using directly determined subjects in split_data_files
+                train_subjects = [subject[-8:] for subject in
+                                  self.train_valid_combinations[treatment][self.current_fold][:5]]
+                validation_subjects = [subject[-8:] for subject in
+                                       self.train_valid_combinations[treatment][self.current_fold][5:]]
+
                 log_file.write(f"Training subjects for treatment {treatment}: {', '.join(train_subjects)}\n")
                 log_file.write(f"Validation subjects for treatment {treatment}: {', '.join(validation_subjects)}\n")
             log_file.write("=" * 40 + "\n")
 
+class MFCC_CRNN(nn.Module):
+    def __init__(self, hidden_dim, num_layers):
+        super(MFCC_CRNN, self).__init__()
 
-class TransformerBlock(nn.Module):
-    def __init__(self, d_model, nhead, num_layers):
-        super(TransformerBlock, self).__init__()
-        self.transformer_layer = nn.TransformerEncoderLayer(d_model, nhead)
-        self.transformer = nn.TransformerEncoder(self.transformer_layer, num_layers=num_layers)
-
-    def forward(self, x):
-        return self.transformer(x)
-
-class MFCC_CNN(nn.Module):
-    def __init__(self, transformer_flag=False):
-        super(MFCC_CNN, self).__init__()
-        self.transformer_flag = transformer_flag
-
-        # Convolution layers
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=(10, 20), stride=(2, 2), padding=(5, 10))
+        # Convolutional Layers
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=(4, 4), stride=(2, 2), padding=(3, 3))
         self.bn1 = nn.BatchNorm2d(32)
         self.dropout_conv1 = nn.Dropout(0.5)
 
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=(10, 20), stride=(2, 2), padding=(5, 10))
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=(3, 2), stride=(2, 2), padding=(2, 4))
         self.bn2 = nn.BatchNorm2d(64)
         self.dropout_conv2 = nn.Dropout(0.5)
 
-        self.conv3 = nn.Conv2d(64, 128, kernel_size=(10, 20), stride=(2, 2), padding=(5, 10))
-        self.bn3 = nn.BatchNorm2d(128)
+        self.pool = nn.MaxPool2d(kernel_size=(1, 2), stride=2, padding=0)
 
-        # Max pooling layer
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
+        self.lstm_input_dim = self._get_conv_output((1, 128, 1723))
 
-        # Compute the output size after convolution and pooling layers to use in the FC layer
-        self.fc_input_dim = self._get_conv_output((1, 39, 2584))
+        # LSTM
+        self.lstm = nn.LSTM(self.lstm_input_dim, hidden_dim, num_layers, batch_first=True)
 
         # Fully connected layers
-        self.fc1 = nn.Linear(self.fc_input_dim, 256)
-        self.fc2 = nn.Linear(256, 4)
+        self.fc1 = nn.Linear(hidden_dim, 64)
+        self.fc2 = nn.Linear(64, 4)
 
         # Dropout layer
         self.dropout = nn.Dropout(0.5)
@@ -327,13 +369,75 @@ class MFCC_CNN(nn.Module):
 
         x = self.dropout_conv1(self.pool(F.relu(self.bn1(self.conv1(x)))))
         x = self.dropout_conv2(self.pool(F.relu(self.bn2(self.conv2(x)))))
-        x = self.pool(F.relu(self.bn3(self.conv3(x))))
+
+        # Prepare data for LSTM
+        x = x.view(x.size(0), x.size(2), -1)
+
+        out, _ = self.lstm(x)
+        out = out[:, -1, :]  # Take the last LSTM output
+
+        out = F.relu(self.fc1(out))
+        out = self.dropout(out)
+        out = self.fc2(out)
+
+        return out
+
+    # Helper function to calculate the LSTM input size
+    def _get_conv_output(self, shape):
+        bs = 1
+        input_tensor = torch.rand(bs, *shape)
+        output_feat = self._forward_features(input_tensor)
+        n_size = output_feat.data.size(2)
+        return n_size
+
+    def _forward_features(self, x):
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = x.view(x.size(0), x.size(2), -1)
+        return x
+class MFCC_CNN(nn.Module):
+    def __init__(self, transformer_flag=False):
+        super(MFCC_CNN, self).__init__()
+        self.transformer_flag = transformer_flag
+
+
+        self.conv1 = nn.Conv2d(1, 32, kernel_size=(39, 6), stride=(2, 2), padding=(3, 3))
+        self.bn1 = nn.BatchNorm2d(32)
+        self.dropout_conv1 = nn.Dropout(0.4)
+
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=(6, 3), stride=(2, 2), padding=(2, 4))
+        self.bn2 = nn.BatchNorm2d(64)
+        self.dropout_conv2 = nn.Dropout(0.4)
+
+        # self.conv3 = nn.Conv2d(64, 128, kernel_size=(5, 10), stride=(2, 2), padding=(2, 4))
+        # self.bn3 = nn.BatchNorm2d(128)
+
+        self.pool = nn.MaxPool2d(kernel_size=(1, 2), stride=2, padding=0)
+
+        # Compute the output size after convolution and pooling layers to use in the FC layer
+        self.fc_input_dim = self._get_conv_output((1, 39, 2584))
+
+        # Fully connected layers
+        self.fc1 = nn.Linear(10432, 64)
+        self.fc2 = nn.Linear(64, 4)
+
+        # Dropout layer
+        self.dropout = nn.Dropout(0.5)
+
+    def forward(self, x):
+        x = x.unsqueeze(1)
+
+        x = self.dropout_conv1(self.pool(F.relu(self.bn1(self.conv1(x)))))
+        x = self.dropout_conv2(self.pool(F.relu(self.bn2(self.conv2(x)))))
+        # x = self.pool(F.relu(self.bn3(self.conv3(x))))
+
+        # Flatten the tensor
+        x = x.view(x.size(0), -1)
 
         if self.transformer_flag:
             # Convert the output to shape suitable for transformer: [sequence_length, batch_size, d_model]
             x = x.view(x.size(0), x.size(1), -1).permute(2, 0, 1)
         else:
-            x = torch.mean(x, dim=[2, 3])  # GAP layer
             x = F.relu(self.fc1(x))
             x = self.dropout(x)
             x = self.fc2(x)
@@ -351,9 +455,12 @@ class MFCC_CNN(nn.Module):
     def _forward_features(self, x):
         x = self.pool(F.relu(self.conv1(x)))
         x = self.pool(F.relu(self.conv2(x)))
-        x = self.pool(F.relu(self.conv3(x)))
-        x = torch.mean(x, dim=[2, 3])  # Include GAP layer
+        # x = self.pool(F.relu(self.conv3(x)))
+
+        # Flatten the tensor
+        x = x.view(x.size(0), -1)
         return x
+
 
 class CombinedModel(nn.Module):
     def __init__(self, d_model, nhead, num_layers):
@@ -369,8 +476,11 @@ class CombinedModel(nn.Module):
         self.dropout = nn.Dropout(0.5)
 
     def forward(self, x):
+
         x = self.cnn(x)
+        print(f"After CNN: {x.shape}")
         x = self.transformer_block(x)
+        print(f"After Transformer: {x.shape}")
 
         # Possibly average along the sequence length dimension after the transformer
         x = torch.mean(x, dim=0)
@@ -395,17 +505,25 @@ class Trainer:
         self.train_accuracies = []
         self.val_accuracies = []
         self.best_model_state = None
+        self.best_val_loss = float('inf')
+        self.patience_counter = 0  # counter for early stopping
+        self.patience = 5
 
     def train_epoch(self):
-        print_interval = len(self.train_loader) // 10  # print 10 times per epoch
+        print_interval = len(self.train_loader) // 5  # print 10 times per epoch
         self.model.train()
         total_loss = 0
         correct_train = 0
         total_train = 0
         start_time = time.time()
         last_print_time = start_time  # Initialize the last print time to the start time
+        saved=False
         for batch_idx, (data, target) in enumerate(self.train_loader):
-
+            # if not saved:  # Only save once
+                # data = add_gaussian_noise(data)  # This function now also saves the data
+            #     saved = True  # Update the flag
+            # else:
+            #     data = add_gaussian_noise_without_saving(data)
             data, target = data.to(self.device), target.to(self.device)
             self.optimizer.zero_grad()
             outputs = self.model(data)
@@ -430,12 +548,11 @@ class Trainer:
         return total_loss / (batch_idx + 1), accuracy
 
     def evaluate(self, test_loader):
-        self.test_loader = test_loader
         self.model.eval()
         all_predictions = []
         all_true_labels = []
         with torch.no_grad():
-            for data, target in self.test_loader:
+            for data, target in test_loader:
                 data, target = data.to(self.device), target.to(self.device)
                 outputs = self.model(data)
                 _, predicted = outputs.max(1)
@@ -452,8 +569,8 @@ class Trainer:
             return True
         return False
 
-    def evaluate_test_set(self, result_dir, folder_name):
-        test_accuracy, test_predictions, test_true_labels = self.evaluate(self.test_loader)
+    def evaluate_test_set(self, result_dir, folder_name, test_loader):
+        test_accuracy, test_predictions, test_true_labels = self.evaluate(test_loader)
         cm = confusion_matrix(test_true_labels, test_predictions)
         plot_confusion_matrix(cm, result_dir=result_dir)
         print(f"Final test accuracy: {test_accuracy:.2f}%")
@@ -573,58 +690,3 @@ def clear_memory():
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-
-# if __name__ == '__main__':
-#     os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
-#     clear_memory()
-#     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-#     # labels_encoding = ['2lux', '5lux', 'LL', 'LD']
-#     labels_encoding = ['0', '1', '2', '3']
-#     BATCH_SIZE = 18
-#     NUM_FILES = 175
-#
-#     folder_path = filedialog.askdirectory()
-#     logging.info(f"The path: {folder_path} is going to be treated now.")
-#
-#     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-#     logging.info(f"Using: {device} as processing device.")
-#
-#     # Load data
-#     logging.info("Splitting files...")
-#     data_loader = CustomDataLoaderWithoutSubjects(folder_path, num_files_per_treatment=NUM_FILES)
-#     data_loader.split_data_files()
-#     logging.info("Files have been split successfully!")
-#
-#     label_encoder = LabelEncoder()
-#     label_encoder.fit(labels_encoding)
-#
-#     train_dataset = CustomDataset(data_loader.train_files)
-#     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=12)
-#     train_mean, train_std = compute_mean_std(train_loader)
-#     logging.info(f"Training set has been normalized")
-#
-#     train_dataset = CustomDataset(data_loader.train_files, labels=label_encoder, mean=train_mean, std=train_std)
-#     val_dataset = CustomDataset(data_loader.val_files, labels=label_encoder, mean=train_mean, std=train_std)
-#     test_dataset = CustomDataset(data_loader.test_files, labels=label_encoder, mean=train_mean, std=train_std)
-#
-#     # Results directory
-#     folder_name = os.path.basename(folder_path)
-#     parent_directory = os.path.dirname(folder_path)
-#     result_dir = os.path.join(parent_directory, f"result_{folder_name}")
-#     os.makedirs(result_dir, exist_ok=True)
-#
-#     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=12, pin_memory=True)
-#     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=12)
-#     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
-#     logging.info('Data has been loaded and ready to be processed.')
-#
-#     # model = MFCC_CNN()
-#     model =MFCC_CNN()
-#     model.to(device)
-#     loss_fn = nn.CrossEntropyLoss()
-#     optimizer = torch.optim.Adam(model.parameters(), lr=0.0002, weight_decay=0.00001)  # 0.0002 lr
-#     scheduler = ReduceLROnPlateau(optimizer, 'min', patience=10, factor=0.8)
-#
-#     trainer = Trainer(model, train_loader, val_loader, test_loader, optimizer, loss_fn, device)
-#     trainer.train(n_epochs=10, best_accuracy=95, batch_size=BATCH_SIZE, num_files=NUM_FILES,
-#                   folder_name=os.path.basename(folder_path))

@@ -273,3 +273,60 @@ class AudioExplorer:
             self.current_time -= self.duration
 
         self.display_waveform()
+
+
+def find_mismatched_h5_files(directory, key, expected_element_shape):
+    mismatched_files = []
+    for dirpath, dirnames, filenames in os.walk(directory):
+        for filename in filenames:
+            if filename.endswith('.h5'):
+                file_path = os.path.join(dirpath, filename)
+                try:
+                    with h5py.File(file_path, 'r') as h5f:
+                        if key in h5f:
+                            # Check each element in the dataset
+                            for element in h5f[key]:
+                                if np.shape(element) != expected_element_shape:
+                                    mismatched_files.append(file_path)
+                                    break  # No need to check other elements for this file
+                except Exception as e:
+                    print(f"Error reading file {file_path}: {e}")
+
+    return mismatched_files
+
+#
+directory = filedialog.askdirectory()
+key = "mfccs_and_derivatives"
+expected_shape = (15, 862)
+mismatched_files = find_mismatched_h5_files(directory, key, expected_shape)
+print(mismatched_files)
+
+def add_gaussian_noise_without_saving(mfcc, sigma=0.000):
+    noise = torch.randn_like(mfcc) * sigma
+    mfcc_with_noise = mfcc + noise
+    return mfcc_with_noise
+
+
+def add_gaussian_noise(mfcc, sigma=0.000):
+    # Save the original data to a file (only once)
+    np.save('original_data.npy', mfcc.cpu().numpy())
+
+    noise = torch.randn_like(mfcc) * sigma
+    mfcc_with_noise = mfcc + noise
+
+    # Save the noisy data to a file (only once)
+    np.save('noisy_data.npy', mfcc_with_noise.cpu().numpy())
+
+    return mfcc_with_noise
+
+
+def set_seed(seed_value=42):
+    """Set seed for reproducibility."""
+    random.seed(seed_value)
+    np.random.seed(seed_value)
+    torch.manual_seed(seed_value)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed_value)
+        torch.cuda.manual_seed_all(seed_value)  # if you are using multi-GPU.
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False

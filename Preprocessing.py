@@ -11,7 +11,10 @@ warnings.filterwarnings("ignore", message="loaded more than 1 DLL from .libs:")
 warnings.filterwarnings('ignore', category=UserWarning, module='numpy')
 import h5py
 import shutil
-import  re
+import re
+import soundfile as sf
+
+
 class PathManager:
     def __init__(self):
         self.source = self.choose_source()
@@ -21,7 +24,7 @@ class PathManager:
         self.threshold = 0.01
         self.above_threshold_duration = 300
         self.required_num_files = 8
-        self.feature_to_extract = 'spectrogram'
+        self.feature_to_extract = 'mfcc'
         self.treatment_mapping = {
             "Gb12": "LD",
             "Gb24": "LL",
@@ -52,7 +55,7 @@ class PathManager:
 
     def _fetch_paths(self):
         if os.path.isdir(self.source):
-            output_file = os.path.join(os.path.dirname(self.source), "valid_folders.txt")
+            output_file = os.path.join(os.path.dirname(self.source), "valid_folders_normalized.txt")
             with open(output_file, 'w') as file:
                 self.find_valid_folders(file)
             print(f"Valid paths have been saved to {output_file}. Please use this file for further processing.")
@@ -174,7 +177,10 @@ class PathManager:
             if treatment:
                 target_folder = os.path.join(destination_folder, treatment, subject)
                 os.makedirs(target_folder, exist_ok=True)
-                shutil.copy2(path, target_folder)
+                # shutil.copy2(path, target_folder)
+                dest_path = os.path.join(target_folder, os.path.basename(path))
+                # Perform pre-processing and save the result
+                self.pre_process_audio(path, dest_path)
             else:
                 print(f"Skipping {path}: Unable to determine treatment.")
 
@@ -194,12 +200,29 @@ class PathManager:
             print(f"Warning: Expected pattern not found in {path}.")
             return None
 
+    def remove_mean(self, audio_signal):
+        return audio_signal - np.mean(audio_signal)
+
+    def automatic_gain_control(self, audio_signal):
+        return audio_signal / np.max(np.abs(audio_signal))
+
+    def pre_process_audio(self, source_path, dest_path):
+        # Load the audio file
+        audio_signal, sr = librosa.load(source_path, sr=None)
+
+        # Pre-processing
+        audio_signal = self.remove_mean(audio_signal)
+        audio_signal = self.automatic_gain_control(audio_signal)
+
+        # Save the processed audio
+        sf.write(dest_path, audio_signal, sr)
+
 
 class AudioProcessor:
-    N_MFCC = 5
-    FRAME_SIZE = 1024
-    HOP_LENGTH = int(FRAME_SIZE*0.75)
-    NUM_SEGMENTS = 200
+    N_MFCC = 128
+    FRAME_SIZE = 2048
+    HOP_LENGTH = int(FRAME_SIZE*0.25)
+    NUM_SEGMENTS = 90
     SAMPLE_RATE = 44100
 
     def __init__(self, feature: str):
@@ -251,7 +274,7 @@ class AudioProcessor:
         if len(segment_signal) == 0:
             print(f"Empty segment signal at segment {s} of file {filename}. Skipping this segment.")
             return None
-        samples_above_threshold = np.sum(np.abs(segment_signal) > 0.01)
+        samples_above_threshold = np.sum(np.abs(segment_signal) > 0.001)
 
         if samples_above_threshold < (0.3 * len(segment_signal)):  # You can adjust this value based on your requirement
             print(
@@ -380,6 +403,6 @@ class AudioProcessor:
 
 if __name__ == '__main__':
     path_manager = PathManager()
-    destination_folder = filedialog.askdirectory()
-    path_manager.organize_valid_files(destination_folder)
-    # path_manager.distribute_paths_to_processes()
+    # destination_folder = filedialog.askdirectory()
+    # path_manager.organize_valid_files(destination_folder)
+    path_manager.distribute_paths_to_processes()
