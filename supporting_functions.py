@@ -295,11 +295,70 @@ def find_mismatched_h5_files(directory, key, expected_element_shape):
     return mismatched_files
 
 #
-directory = filedialog.askdirectory()
-key = "mfccs_and_derivatives"
-expected_shape = (15, 862)
-mismatched_files = find_mismatched_h5_files(directory, key, expected_shape)
-print(mismatched_files)
+# directory = filedialog.askdirectory()
+# key = "mfccs_and_derivatives"
+# expected_shape = (15, 862)
+# mismatched_files = find_mismatched_h5_files(directory, key, expected_shape)
+# print(mismatched_files)
+def plot_waveform2(file_path, chirp_positions=None, apply_threshold=False, threshold=0.01):
+    # Load audio file
+    audio, sr = librosa.load(file_path, sr=None)
+
+    # Create a time axis in seconds
+    time_axis = np.linspace(0, len(audio) / sr, num=len(audio))
+
+    # Calculate the amplitude envelope using the Hilbert transform
+    amplitude_envelope = np.abs(hilbert(audio))
+
+    # Plot waveform and amplitude envelope
+    plt.figure(figsize=(20, 5))
+    plt.plot(time_axis, audio, label='Waveform')
+    plt.plot(time_axis, amplitude_envelope, color='red', label='Amplitude Envelope')
+
+    # Apply and plot thresholded amplitude envelope if specified
+    if apply_threshold:
+        amplitude_envelope_thresholded = np.where(amplitude_envelope < threshold, 0, amplitude_envelope)
+        plt.plot(time_axis, amplitude_envelope_thresholded, color='green', label='Amplitude Envelope with Threshold')
+
+    # Plot red line at each chirp position
+    if chirp_positions is not None:
+        for pos in chirp_positions:
+            chirp_time = pos / sr  # Convert sample index to time
+            plt.axvline(x=chirp_time, color='red', linestyle='--')
+
+    plt.title('Audio Waveform and Amplitude Envelope')
+    plt.xlabel('Time (s)')
+    plt.ylabel('Amplitude')
+    plt.axhline(0, color='gray', lw=1)
+    plt.ylim(-1.0, 1.0)
+    plt.legend()
+    plt.show()
+
+    def extract_signal_with_threshold(file_path, threshold=None):
+        # Load the audio file
+        audio, sr = librosa.load(file_path, sr=None)
+
+        if threshold is not None:
+            audio[np.abs(audio) < threshold] = 0
+
+        return audio
+
+
+def get_wav_file_properties(file_path):
+    with wave.open(file_path, 'r') as wav_file:
+        num_channels = wav_file.getnchannels()
+        sample_rate = wav_file.getframerate()
+        sample_width = wav_file.getsampwidth()
+        num_frames = wav_file.getnframes()
+        duration = num_frames / float(sample_rate)
+        bit_depth = sample_width * 8
+        properties = {"filename": file_path.split('/')[-1],
+                      "duration": duration,
+                      "sample_rate": sample_rate,
+                      "bit_depth": bit_depth,
+                      "channels": "Mono" if num_channels == 1 else "Stereo"}
+        for key, value in properties.items():
+            print(f"{key}: {value}")
 
 def add_gaussian_noise_without_saving(mfcc, sigma=0.000):
     noise = torch.randn_like(mfcc) * sigma
