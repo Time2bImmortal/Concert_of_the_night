@@ -40,7 +40,18 @@ def select_folder_experiment():
             file_paths.append(file_path)
 
     return file_paths
+def erase_modified_files():
+    root = tk.Tk()
+    root.withdraw()
+    # Ask for the folder where files need to be erased
+    folder = filedialog.askdirectory(title="Select Folder to Clean")
 
+    for dirpath, dirnames, filenames in os.walk(folder):
+        for filename in filenames:
+            if '_modified' in filename:
+                file_path = os.path.join(dirpath, filename)
+                os.remove(file_path)
+                print(f"Deleted: {file_path}")
 
 def extract_amplitude_envelope(file_path, threshold=None):
 
@@ -168,14 +179,14 @@ def find_and_analyze_chirps(signal_envelope, syllable_pattern_amplitude, similar
     return syllable_positions
 
 
-def find_syllable_ends(signal_envelope, syllable_positions, pattern_length, zero_values_threshold=150, tolerance_percent = 15):
+def find_syllable_ends(signal_envelope, syllable_positions, pattern_length, zero_values_threshold=150, tolerance_percent = 10):
     syllable_end_positions = []
     updated_syllable_start_positions = []
     signal_array = np.array(signal_envelope)
 
     for position in syllable_positions:
-        end_search_start = position + int(pattern_length * 0.5)
-        end_search_end = min(position + int(1.5 * pattern_length), len(signal_array))
+        end_search_start = position + int(pattern_length * 0.3)
+        end_search_end = min(position + int(2 * pattern_length), len(signal_array))
 
         # Only proceed if the segment is long enough for the rolling window
         if end_search_end - end_search_start >= zero_values_threshold:
@@ -193,8 +204,6 @@ def find_syllable_ends(signal_envelope, syllable_positions, pattern_length, zero
         # If the segment is too short, skip adding an end position and corresponding start position
 
     return updated_syllable_start_positions, syllable_end_positions
-
-
 
 
 def group_syllables_and_calculate_distances(syllable_starts, syllable_ends, pattern_length):
@@ -262,7 +271,7 @@ def create_modified_audio(file_path, syllables_positions, syllables_ends, sample
 
 def chirps_proportion(chirps_groups):
 
-    chirps_groups_counts = [0,0,0,0,0,0,0,0]
+    chirps_groups_counts = [0,0,0,0,0,0,0,0,0,0,0,0,0]
 
     for group in chirps_groups:
         chirps_groups_counts[len(group)-1] += 1
@@ -304,26 +313,60 @@ def create_csv_from_files(root_folder, csv_filename, syllable_pattern_amplitude,
                 writer.writerow([experiment, subject, filename, syllables_total_number, syllable_ends_number, chirps_number, chirps_proportions, intra_mean, intra_std, inter_mean, inter_std])
 
 def match_starts_and_ends(syllables_starts, syllables_ends):
-    # Check if there is an end before the first start and remove it
+
     if syllables_ends and syllables_starts and syllables_ends[0] < syllables_starts[0]:
         syllables_ends.pop(0)
 
-    # Check if there is a start after the last end and remove it
     if syllables_starts and syllables_ends and syllables_starts[-1] > syllables_ends[-1]:
         syllables_starts.pop()
+
+    if len(syllables_starts) != len(syllables_ends):
+        idx = 0
+        while idx < min(len(syllables_starts), len(syllables_ends)):
+            # If a start time is greater than its corresponding end time, it's a mismatch
+            if syllables_starts[idx] > syllables_ends[idx]:
+                # Identify whether to remove a start or an end based on which list is longer
+                if len(syllables_starts) > len(syllables_ends):
+                    mismatched_time = syllables_starts.pop(idx)
+                    mismatch_type = "start"
+                else:
+                    mismatched_time = syllables_ends.pop(idx)
+                    mismatch_type = "end"
+            print("******************************************************************************")
+            print(f"Mismatch eliminated at position {idx}: {mismatch_type} time {mismatched_time}")
+            print("******************************************************************************")
+        else:
+            idx += 1
 
     return syllables_starts, syllables_ends
 
 
-def reduce_amplitude_if_needed(signal):
-
+def preprocess_amplitude_if_needed(signal, default_threshold=0.04):
     signal = np.array(signal)
+
+    # Condition: Check if all values are below 0.1
+    if np.all(signal < 0.1):
+        modified_signal = signal * 9
+        modified_signal[np.abs(modified_signal) < 0.08] = 0
+        return modified_signal
+
+    # Condition: Check if all values are below 0.3
+    elif np.all(signal < 0.3):
+        modified_signal = signal * 3
+        modified_signal[np.abs(modified_signal) < 0.08] = 0
+        return modified_signal
+
+    # Condition: If there are more than 1000 ones
     count_of_ones = np.sum(signal == 1)
+    if count_of_ones >= 1:
+        reduced_signal = signal / 2
+        reduced_signal[np.abs(reduced_signal) < 0.05] = 0
+        return reduced_signal
 
-    if count_of_ones >= 1000:
-        signal = signal / 2
-
+    # Default case: Apply a threshold of 0.03
+    signal[np.abs(signal) < default_threshold] = 0
     return signal
+
 #################################################################################################
 #################################################################################################
 #################################################################################################
@@ -342,6 +385,7 @@ csv_filename = r'E:\\results_chirps_analysis.csv'
 bugged_files = []
 
 # file_path = select_wav_file()
+erase_modified_files()
 files_paths = select_folder_experiment()
 with open(csv_filename, 'w', newline='') as csvfile:
     writer = csv.writer(csvfile)
@@ -362,8 +406,8 @@ with open(csv_filename, 'w', newline='') as csvfile:
         subject = parts[-2]  # Assuming the subject name is 2 levels up from the file
 
 
-        signal_envelope = extract_amplitude_envelope(file_path, threshold=0.03)  # hilbert abs / threshold improvement
-        signal_envelope = reduce_amplitude_if_needed(signal_envelope)
+        signal_envelope = extract_amplitude_envelope(file_path)  # hilbert abs / threshold improvement
+        signal_envelope = preprocess_amplitude_if_needed(signal_envelope)
         signal_length = len(signal_envelope)
 
         syllables_starts = find_and_analyze_chirps(signal_envelope, syllable_pattern_amplitude, similarity_threshold, step_size)
@@ -372,11 +416,6 @@ with open(csv_filename, 'w', newline='') as csvfile:
         # Handle partial pattern at the extremities
         if len(syllables_starts) != len(syllable_ends):
             syllables_starts, syllable_ends = match_starts_and_ends(syllables_starts, syllable_ends)
-
-            if len(syllables_starts) != len(syllable_ends):
-                print(f"Warning: Mismatch in file {file_path}. Skipping this file.")
-                bugged_files.append(file_path)
-                continue
 
         chirps, intra_distances, inter_distances = group_syllables_and_calculate_distances(syllables_starts, syllable_ends, pattern_length)
         chirps_proportion_result = chirps_proportion(chirps)
@@ -387,7 +426,7 @@ with open(csv_filename, 'w', newline='') as csvfile:
         chirps_number = len(chirps)
         print('Syllables starts total number =', syllables_total_number)
         print('Syllables ends total number =', syllable_ends_number)
-        # print('Chirps total number =', chirps_number)
+        print('Chirps total number =', chirps_number)
         intra_mean = np.mean(intra_distances) if intra_distances else 0
         intra_std = np.std(intra_distances) if intra_distances else 0
 
@@ -400,5 +439,5 @@ with open(csv_filename, 'w', newline='') as csvfile:
         writer.writerow([experiment, subject, os.path.basename(file_path), syllables_total_number, syllable_ends_number,
                          chirps_number, chirps_proportion_result, intra_mean, intra_std, inter_mean, inter_std])
         create_modified_audio(file_path, syllables_starts, syllable_ends, 44100)
-    print(bugged_files)
+
 
