@@ -23,7 +23,7 @@ class PathManager:
         self.valid_extension = '.wav'
         self.threshold = 0.01
         self.above_threshold_duration = 300
-        self.required_num_files = 8
+        self.required_num_files = 9
         self.feature_to_extract = 'mfcc'
         self.treatment_mapping = {
             "Gb12": "LD",
@@ -55,7 +55,7 @@ class PathManager:
 
     def _fetch_paths(self):
         if os.path.isdir(self.source):
-            output_file = os.path.join(os.path.dirname(self.source), "valid_folders_normalized.txt")
+            output_file = os.path.join(os.path.dirname(self.source), "valid_folders.txt")
             with open(output_file, 'w') as file:
                 self.find_valid_folders(file)
             print(f"Valid paths have been saved to {output_file}. Please use this file for further processing.")
@@ -87,12 +87,11 @@ class PathManager:
 
             valid_files_paths = []
             for file_name in wav_files:
-                if len(valid_files_paths) > self.required_num_files:
-                    break
-
                 full_path = os.path.join(root, file_name)
                 if self._check_file_size(full_path) and self._is_valid_audio(full_path):
                     valid_files_paths.append(full_path)
+                    if len(valid_files_paths) == self.required_num_files:
+                        break
 
             if len(valid_files_paths) >= self.required_num_files:
                 print(f"Number of valid files in {root}: {len(valid_files_paths)}")
@@ -403,6 +402,6 @@ class AudioProcessor:
 
 if __name__ == '__main__':
     path_manager = PathManager()
-    # destination_folder = filedialog.askdirectory()
-    # path_manager.organize_valid_files(destination_folder)
-    path_manager.distribute_paths_to_processes()
+    destination_folder = filedialog.askdirectory()
+    path_manager.organize_valid_files(destination_folder)
+    # path_manager.distribute_paths_to_processes()
