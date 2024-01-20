@@ -389,3 +389,121 @@ def set_seed(seed_value=42):
         torch.cuda.manual_seed_all(seed_value)  # if you are using multi-GPU.
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
+# def calculate_cross_correlation(signal1, signal2):
+#     # Compute the cross-correlation
+#     correlation = np.correlate(signal1, signal2, mode='valid')
+#
+#     # Normalize the cross-correlation
+#     norm = np.linalg.norm(signal1) * np.linalg.norm(signal2)
+#     if norm == 0:
+#         return np.zeros_like(correlation)
+#
+#     normalized_correlation = correlation / norm
+#     return normalized_correlation
+
+# @print_syllable_details
+# def coarse_search(pattern_envelope, signal_envelope, step_size=500, similarity_threshold=0.2):
+#     pattern_length = len(pattern_envelope)
+#     signal_length = len(signal_envelope)
+#
+#     if pattern_length > signal_length:
+#         raise ValueError("Pattern length cannot be greater than signal length.")
+#
+#     best_similarity = -1
+#     best_position = -1
+#
+#     for start in range(0, signal_length - pattern_length + 1, step_size):
+#         end = start + pattern_length
+#         window = signal_envelope[start:end]
+#         correlation = calculate_cross_correlation(pattern_envelope, window)
+#         max_correlation = np.max(correlation) if len(correlation) > 0 else 0
+#
+#         if max_correlation > best_similarity:
+#             best_similarity = max_correlation
+#             best_position = start
+#
+#         # Stop searching if the similarity threshold is exceeded
+#         if max_correlation > similarity_threshold:
+#             break
+#
+#     return best_position, best_similarity
+
+
+# @print_syllable_details
+# def refine_search(pattern_envelope, signal_envelope, initial_position, initial_similarity=None, search_radius=300, step_size=10, non_zero_units_threshold=100):
+#     pattern_length = len(pattern_envelope)
+#     signal_length = len(signal_envelope)
+#
+#     if pattern_length > signal_length:
+#         raise ValueError("Pattern length cannot be greater than signal length.")
+#
+#     best_similarity = initial_similarity if initial_similarity is not None else 0
+#     best_position = initial_position
+#
+#     # Find position with best similarity
+#     for start in range(max(0, initial_position - search_radius), min(initial_position + search_radius, signal_length - pattern_length), step_size):
+#         window = signal_envelope[start:start + pattern_length]
+#         correlation = calculate_cross_correlation(pattern_envelope, window)
+#         max_correlation = np.max(correlation) if len(correlation) > 0 else 0
+#
+#         if max_correlation > best_similarity:
+#             best_similarity = max_correlation
+#             best_position = start
+#
+#     # Advance the position forward until the next 100 units are all non-zero
+#     while best_position + non_zero_units_threshold <= signal_length:
+#         post_pattern_region = signal_envelope[best_position:best_position + non_zero_units_threshold]
+#         if np.all(post_pattern_region != 0):
+#             break  # Found a sequence of 100 non-zero units
+#         best_position += 5  # Shift the position forward
+#
+#     return best_position, best_similarity
+
+
+# def find_and_analyze_chirps(signal_envelope, syllable_pattern_amplitude, similarity_threshold, step_size):
+#
+#     pattern_length = len(syllable_pattern_amplitude)
+#     signal_length = len(signal_envelope)
+#
+#     # Initial coarse search to find the first syllable
+#     initial_position, initial_similarity = coarse_search(syllable_pattern_amplitude, signal_envelope, step_size, similarity_threshold)
+#
+#     if initial_similarity <= similarity_threshold:
+#         print("No initial syllable found.")
+#         return [], [], [], []
+#
+#     # Refine the initial syllable position
+#     refined_initial_position, refined_initial_similarity = refine_search(syllable_pattern_amplitude, signal_envelope, initial_position, initial_similarity)
+#
+#     syllable_positions = [refined_initial_position]
+#
+#     current_position = refined_initial_position + int(pattern_length*0.5)
+#     while current_position < signal_length - pattern_length:
+#
+#         search_start = current_position + int(pattern_length*0.5)
+#
+#         search_end = min(search_start + int(pattern_length * 2), signal_length)
+#         if search_end - search_start < pattern_length:
+#             break
+#
+#         coarse_position, coarse_similarity = coarse_search(syllable_pattern_amplitude, signal_envelope[search_start:search_end])
+#
+#         # Translate the coarse position to the original signal's coordinates
+#         absolute_position = search_start + coarse_position
+#
+#         if coarse_similarity > similarity_threshold:
+#             # Refine the search for the next syllable
+#             refined_position, refined_similarity = refine_search(syllable_pattern_amplitude, signal_envelope, absolute_position)
+#
+#             # Append every refined position to syllable_positions
+#             syllable_positions.append(refined_position)
+#             current_position = refined_position + pattern_length
+#         else:
+#             current_position += pattern_length
+#
+#     return syllable_positions
+# syllable_pattern = r"C:\Users\yfant\OneDrive\Desktop\Crickets chirps analysis\chirp_LD_main_wave.wav"  # "E:\chirp_LD_main_wave.wav"
+# syllable_pattern_amplitude = extract_amplitude_envelope(syllable_pattern)  # hilbert abs
+# pattern_length = len(syllable_pattern_amplitude)
+# to_erase_files = check_audio_files()
+# file_path = select_wav_file()

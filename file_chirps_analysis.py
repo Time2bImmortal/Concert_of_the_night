@@ -21,6 +21,8 @@ def print_syllable_details(func):
 
         return syllable_position, similarity
     return wrapper
+
+
 def select_wav_file():
     root = tk.Tk()
     root.withdraw()  # Hide the main window
@@ -54,6 +56,8 @@ def erase_modified_files():
                 file_path = os.path.join(dirpath, filename)
                 os.remove(file_path)
                 print(f"Deleted: {file_path}")
+
+
 def check_audio_files():
     root = tk.Tk()
     root.withdraw()
@@ -73,147 +77,47 @@ def check_audio_files():
                 except Exception as e:
                     print(f"Error processing {file_path}: {e}")
     return below_files
-def extract_amplitude_envelope(file_path):
+
+
+def process_audio(file_path, smoothing_window=20, scaling_factor=0.9, threshold=0.08):
     try:
+        # Load audio
         audio, sr = librosa.load(file_path, sr=44100)
-        dominant_frequency = extract_dominant_frequency(audio)
+        # Normalize the audio
         audio = audio / np.max(np.abs(audio))
+
+        # Extract the amplitude envelope
         amplitude_envelope = np.abs(hilbert(audio))
 
-        return amplitude_envelope, dominant_frequency
+        # Smooth the amplitude envelope
+        smoothed_amplitude_envelope = np.convolve(amplitude_envelope, np.ones(smoothing_window) / smoothing_window, mode='same')
+
+        # Scale the smoothed envelope
+        max_value = np.max(smoothed_amplitude_envelope)
+        if max_value > 0:
+            scaled_envelope = scaling_factor * smoothed_amplitude_envelope / max_value
+
+        # Apply a threshold
+        scaled_envelope[scaled_envelope < threshold] = 0
+
+        # Assuming extract_dominant_frequency is a defined function elsewhere
+        dominant_frequency = extract_dominant_frequency(audio)
+
+        return scaled_envelope, dominant_frequency
 
     except Exception as e:
         print(f"An error occurred: {e}")
         return None
 
 
-# def calculate_cross_correlation(signal1, signal2):
-#     # Compute the cross-correlation
-#     correlation = np.correlate(signal1, signal2, mode='valid')
-#
-#     # Normalize the cross-correlation
-#     norm = np.linalg.norm(signal1) * np.linalg.norm(signal2)
-#     if norm == 0:
-#         return np.zeros_like(correlation)
-#
-#     normalized_correlation = correlation / norm
-#     return normalized_correlation
-
-# @print_syllable_details
-# def coarse_search(pattern_envelope, signal_envelope, step_size=500, similarity_threshold=0.2):
-#     pattern_length = len(pattern_envelope)
-#     signal_length = len(signal_envelope)
-#
-#     if pattern_length > signal_length:
-#         raise ValueError("Pattern length cannot be greater than signal length.")
-#
-#     best_similarity = -1
-#     best_position = -1
-#
-#     for start in range(0, signal_length - pattern_length + 1, step_size):
-#         end = start + pattern_length
-#         window = signal_envelope[start:end]
-#         correlation = calculate_cross_correlation(pattern_envelope, window)
-#         max_correlation = np.max(correlation) if len(correlation) > 0 else 0
-#
-#         if max_correlation > best_similarity:
-#             best_similarity = max_correlation
-#             best_position = start
-#
-#         # Stop searching if the similarity threshold is exceeded
-#         if max_correlation > similarity_threshold:
-#             break
-#
-#     return best_position, best_similarity
-
-
-# @print_syllable_details
-# def refine_search(pattern_envelope, signal_envelope, initial_position, initial_similarity=None, search_radius=300, step_size=10, non_zero_units_threshold=100):
-#     pattern_length = len(pattern_envelope)
-#     signal_length = len(signal_envelope)
-#
-#     if pattern_length > signal_length:
-#         raise ValueError("Pattern length cannot be greater than signal length.")
-#
-#     best_similarity = initial_similarity if initial_similarity is not None else 0
-#     best_position = initial_position
-#
-#     # Find position with best similarity
-#     for start in range(max(0, initial_position - search_radius), min(initial_position + search_radius, signal_length - pattern_length), step_size):
-#         window = signal_envelope[start:start + pattern_length]
-#         correlation = calculate_cross_correlation(pattern_envelope, window)
-#         max_correlation = np.max(correlation) if len(correlation) > 0 else 0
-#
-#         if max_correlation > best_similarity:
-#             best_similarity = max_correlation
-#             best_position = start
-#
-#     # Advance the position forward until the next 100 units are all non-zero
-#     while best_position + non_zero_units_threshold <= signal_length:
-#         post_pattern_region = signal_envelope[best_position:best_position + non_zero_units_threshold]
-#         if np.all(post_pattern_region != 0):
-#             break  # Found a sequence of 100 non-zero units
-#         best_position += 5  # Shift the position forward
-#
-#     return best_position, best_similarity
-
-
-# def find_and_analyze_chirps(signal_envelope, syllable_pattern_amplitude, similarity_threshold, step_size):
-#
-#     pattern_length = len(syllable_pattern_amplitude)
-#     signal_length = len(signal_envelope)
-#
-#     # Initial coarse search to find the first syllable
-#     initial_position, initial_similarity = coarse_search(syllable_pattern_amplitude, signal_envelope, step_size, similarity_threshold)
-#
-#     if initial_similarity <= similarity_threshold:
-#         print("No initial syllable found.")
-#         return [], [], [], []
-#
-#     # Refine the initial syllable position
-#     refined_initial_position, refined_initial_similarity = refine_search(syllable_pattern_amplitude, signal_envelope, initial_position, initial_similarity)
-#
-#     syllable_positions = [refined_initial_position]
-#
-#     current_position = refined_initial_position + int(pattern_length*0.5)
-#     while current_position < signal_length - pattern_length:
-#
-#         search_start = current_position + int(pattern_length*0.5)
-#
-#         search_end = min(search_start + int(pattern_length * 2), signal_length)
-#         if search_end - search_start < pattern_length:
-#             break
-#
-#         coarse_position, coarse_similarity = coarse_search(syllable_pattern_amplitude, signal_envelope[search_start:search_end])
-#
-#         # Translate the coarse position to the original signal's coordinates
-#         absolute_position = search_start + coarse_position
-#
-#         if coarse_similarity > similarity_threshold:
-#             # Refine the search for the next syllable
-#             refined_position, refined_similarity = refine_search(syllable_pattern_amplitude, signal_envelope, absolute_position)
-#
-#             # Append every refined position to syllable_positions
-#             syllable_positions.append(refined_position)
-#             current_position = refined_position + pattern_length
-#         else:
-#             current_position += pattern_length
-#
-#     return syllable_positions
-
 def find_and_analyze_chirps(signal_envelope, amplitude_threshold):
-    window_size = 100
-    step_size = 100
-    continuous_threshold = 100
-    syllable_length = 800  # Average length of a syllable
+
+    window_size, step_size, continuous_threshold = 100, 100, 100
+    syllable_length = 700  # slightly lower than average length of 800
     zero_threshold = 100
     zero_tolerance = 5
     syllable_positions = []
-    penalty_threshold = 50  # Threshold for the penalty count
-    post_check_length = 500
-
     start = 0
-    penalty_count=0
 
     while start <= len(signal_envelope) - window_size:
         window = signal_envelope[start:start + window_size]
@@ -234,7 +138,7 @@ def find_and_analyze_chirps(signal_envelope, amplitude_threshold):
 
 
 def refine_position(signal, start_position, zero_threshold, zero_tolerance):
-    max_check_length = 200
+    max_check_length = 300
     end_check = max(0, start_position - max_check_length)
     segment = signal[end_check:start_position]
 
@@ -255,11 +159,7 @@ def refine_position(signal, start_position, zero_threshold, zero_tolerance):
     return -1  # If the condition is not met in any segment
 
 
-# Example usage:
-# refined_position = refine_position(signal_envelope, start_position, 100, 5)
-
-
-def find_syllable_ends(signal_envelope, syllable_positions, zero_values_threshold=100, tolerance_percent = 5):
+def find_syllable_ends(signal_envelope, syllable_positions, zero_values_threshold=64, tolerance_percent=1):
     syllable_end_positions = []
     signal_array = np.array(signal_envelope)
 
@@ -300,7 +200,7 @@ def group_syllables_and_calculate_distances(syllable_starts, syllable_ends):
         else:
             distance_to_current = syllable_starts[i] - current_group[-1][1]
 
-            if distance_to_current < 2400:
+            if distance_to_current < 2000:
                 if len(current_group) > 1:
                     intra_group_distances.append(distance_to_current)
                 current_group.append((syllable_starts[i], syllable_ends[i]))
@@ -358,6 +258,7 @@ def create_modified_audio(file_path, syllables_positions, syllables_ends, chirps
     print(f"Modified audio file saved as: {output_audio_path}")
     print(f"Label track file saved as: {output_label_path}")
 
+
 def chirps_proportion(chirps_groups):
     chirps_groups_counts = {}
 
@@ -407,12 +308,14 @@ def match_starts_and_ends(syllables_starts, syllables_ends):
 
         end = syllables_ends[end_idx]
 
-        paired_starts.append(start)
-        paired_ends.append(end)
+        if end - start >= 200:
+            paired_starts.append(start)
+            paired_ends.append(end)
 
         # Move to the next valid start
         next_start_idx = start_idx + 1
-        while next_start_idx < len(syllables_starts) and syllables_starts[next_start_idx] - start < 400:
+        while next_start_idx < len(syllables_starts) and syllables_starts[next_start_idx] - start < 800:
+
             next_start_idx += 1
 
         start_idx = next_start_idx
@@ -421,22 +324,6 @@ def match_starts_and_ends(syllables_starts, syllables_ends):
     return paired_starts, paired_ends, mismatch
 
 
-def preprocess_amplitude_if_needed(signal, default_threshold=0.08):
-    if signal is None:
-        print("Received None as input for preprocessing. Exiting function.")
-        return None
-    signal = np.array(signal)
-
-    # Normalize the signal to peak at 0.5
-    max_value = np.max(signal)  # Find the maximum value
-    if max_value > 0:  # Ensure max_value is not zero to avoid division by zero
-        signal = 0.9 * signal / max_value
-
-    # Apply a threshold to reduce low amplitude noise
-    # Adjust the threshold as needed for your specific application
-    signal[signal < default_threshold] = 0
-
-    return signal
 
 
 def mean_syllable_size(syllable_starts, syllable_ends):
@@ -454,54 +341,75 @@ def mean_syllable_size(syllable_starts, syllable_ends):
     # Calculate the mean size
     mean_size = sum(differences) / len(differences)
     return mean_size
+
+
 def mean_group_size(group):
     mean_size = sum(group) / len(group)
     return mean_size
+
 
 def extract_dominant_frequency(signal, sampling_rate=44100):
     # Apply FFT to the signal
     fft_result = np.fft.fft(signal)
     frequencies = np.fft.fftfreq(len(fft_result), 1/sampling_rate)
 
-    # Get the absolute values to find the magnitude
-    magnitude = np.abs(fft_result)
+    # Consider only the positive frequencies
+    positive_frequencies = frequencies[:len(frequencies)//2]
+    positive_magnitude = np.abs(fft_result)[:len(frequencies)//2]
 
-    # Find the index of the maximum magnitude
-    dominant_index = np.argmax(magnitude)
+    # Find the index of the maximum magnitude in the positive frequencies
+    dominant_index = np.argmax(positive_magnitude)
 
-    # Find the dominant frequency
-    dominant_frequency = frequencies[dominant_index]
+    # Find the dominant frequency (positive only)
+    dominant_frequency = int(positive_frequencies[dominant_index])
 
     return dominant_frequency
+
+def evaluate_threshold(signal_envelope, threshold):
+    syllables_starts = find_and_analyze_chirps(signal_envelope, amplitude_threshold=threshold)
+    syllable_ends = find_syllable_ends(signal_envelope, syllables_starts)
+    syllables_starts, syllable_ends, _ = match_starts_and_ends(syllables_starts, syllable_ends)
+
+    chirps, _, _, _, single_syllable_groups = group_syllables_and_calculate_distances(syllables_starts, syllable_ends)
+
+    return single_syllable_groups
+
+def find_optimal_threshold(signal_envelope, start_threshold, end_threshold, step):
+    optimal_threshold = start_threshold
+    min_single_syllable_groups = float('inf')
+
+    for threshold in np.arange(start_threshold, end_threshold, step):
+        single_syllable_groups = evaluate_threshold(signal_envelope, threshold)
+        if single_syllable_groups < min_single_syllable_groups:
+            min_single_syllable_groups = single_syllable_groups
+            optimal_threshold = threshold
+
+    return optimal_threshold
+
 #################################################################################################
 #################################################################################################
 #################################################################################################
 
-"""Use the chirp pattern that you wish, it will run a window to catch similar chirps"""
 
 print("The script is starting...")
 
-syllable_pattern = r"C:\Users\yfant\OneDrive\Desktop\Crickets chirps analysis\chirp_LD_main_wave.wav"  # "E:\chirp_LD_main_wave.wav"
-syllable_pattern_amplitude = extract_amplitude_envelope(syllable_pattern)  # hilbert abs
-similarity_threshold = 0.3
-step_size = 600  # 50% percent chirp pattern's size
 sample_rate = 44100
-mismatch=0
-pattern_length = len(syllable_pattern_amplitude)
-csv_filename = r'D:\new_test.csv'
+mismatch = 0
+default_threshold = 0.07
+smoothing_window = 30
+optimal_threshold = default_threshold
+csv_filename = fr'D:\win{smoothing_window}th{default_threshold}.csv'
 bugged_files = []
 
-# to_erase_files = check_audio_files()
-# file_path = select_wav_file()
 erase_modified_files()
-
 files_paths = select_folder_experiment()
+
 with open(csv_filename, 'w', newline='') as csvfile:
     writer = csv.writer(csvfile)
     # Write the header
     writer.writerow(["Experiment", "Subject", "File", "Total Syllable Starts", "Total Syllable Ends", "Total Chirps",
-                     "Chirp Sizes Proportion", "Mean Inter-Group", "Std Inter-Group", "Mean Intra-Group",
-                     "Std Intra-Group", "Mean syllable size", "Mean chirp size", "Dominant frequency"])
+                     "Chirp Sizes Proportion", "Mean Intra-Group", "Std Intra-Group", "Mean Inter-Group",
+                     "Std Inter-Group", "Mean syllable size", "Mean chirp size", "Dominant frequency", "optimal_threshold"])
 
     for file_path in files_paths:
         if file_path is None:
@@ -511,28 +419,31 @@ with open(csv_filename, 'w', newline='') as csvfile:
         parts = file_path.split(os.sep)
 
         # Extract required details from the path
-        experiment = parts[-3]  # Assuming the experiment name is 3 lenvels up from the file
+        experiment = parts[-3]  # Assuming the experiment name is 3 levels up from the file
         subject = parts[-2]  # Assuming the subject name is 2 levels up from the file
 
-        signal_envelope, dominant_frequency = extract_amplitude_envelope(file_path)  # hilbert abs / threshold improvement
-        signal_envelope = preprocess_amplitude_if_needed(signal_envelope)
+        signal_envelope, dominant_frequency = process_audio(file_path, smoothing_window=smoothing_window, threshold=default_threshold)
         signal_length = len(signal_envelope)
 
-        # syllables_starts = find_and_analyze_chirps(signal_envelope, syllable_pattern_amplitude, similarity_threshold, step_size)
-        syllables_starts = find_and_analyze_chirps(signal_envelope, amplitude_threshold=0.08)
-
-
+        syllables_starts = find_and_analyze_chirps(signal_envelope, amplitude_threshold=default_threshold)
         syllable_ends = find_syllable_ends(signal_envelope, syllables_starts)
         syllables_starts, syllable_ends, mismatch = match_starts_and_ends(syllables_starts, syllable_ends)
         mean_size_syllable = mean_syllable_size(syllables_starts, syllable_ends)
 
-        chirps, intra_distances, inter_distances, group_size = group_syllables_and_calculate_distances(syllables_starts,syllable_ends)
+        chirps, intra_distances, inter_distances, group_size = group_syllables_and_calculate_distances(
+            syllables_starts, syllable_ends)
+        # if groups_one > 10:
+        #     print("Optimizing threshold...")
+        #     optimal_threshold = find_optimal_threshold(signal_envelope, start_threshold=default_threshold-0.04,
+        #                                                end_threshold=0.08, step=0.01)
+        #     syllables_starts = find_and_analyze_chirps(signal_envelope, amplitude_threshold=optimal_threshold)
+        #     syllable_ends = find_syllable_ends(signal_envelope, syllables_starts)
+        #     syllables_starts, syllable_ends, mismatch = match_starts_and_ends(syllables_starts, syllable_ends)
+        #     chirps, intra_distances, inter_distances, group_size, _ = group_syllables_and_calculate_distances(
+        #         syllables_starts, syllable_ends)
         mean_chirp_size = mean_group_size(group_size)
         chirps_proportion_result = chirps_proportion(chirps)
 
-        print('Syllables starts total number =', len(syllables_starts))
-        print('Syllables ends total number =', len(syllable_ends))
-        print('Chirps total number =', len(chirps))
         intra_mean = np.mean(intra_distances) if intra_distances else 0
         intra_std = np.std(intra_distances) if intra_distances else 0
 
@@ -540,11 +451,11 @@ with open(csv_filename, 'w', newline='') as csvfile:
         inter_mean = np.mean(inter_distances) if inter_distances else 0
         inter_std = np.std(inter_distances) if inter_distances else 0
 
-        # print("Intra-group Distances: Mean =", round(intra_mean, 1), ", Standard Deviation =", round(intra_std, 1))
-        # print("Inter-group Distances: Mean =", round(inter_mean, 1), ", Standard Deviation =", round(inter_std, 1))
         writer.writerow([experiment, subject, os.path.basename(file_path), len(syllables_starts), len(syllable_ends),
-                         len(chirps), chirps_proportion_result, round(intra_mean,0), round(intra_std,0),
-                         round(inter_mean,0), round(inter_std,0), round(mean_size_syllable,0), round(mean_chirp_size,0), dominant_frequency])
+                         len(chirps), chirps_proportion_result, round(intra_mean, 0), round(intra_std, 0),
+                         round(inter_mean, 0), round(inter_std, 0), round(mean_size_syllable, 0),
+                         round(mean_chirp_size, 0), dominant_frequency, optimal_threshold])
+
         create_modified_audio(file_path, syllables_starts, syllable_ends, chirps)
 
 
