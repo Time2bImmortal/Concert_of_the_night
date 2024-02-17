@@ -10,7 +10,7 @@ import os
 import shutil
 import random
 import h5py
-
+import subprocess
 
 def delete_common_files(train_folder, test_folder):
     train_subfolders = get_train_subfolders(train_folder)
@@ -507,3 +507,45 @@ def set_seed(seed_value=42):
 # pattern_length = len(syllable_pattern_amplitude)
 # to_erase_files = check_audio_files()
 # file_path = select_wav_file()
+
+def convert_to_wav(input_file, output_file='output.wav'):
+    """
+    Convert an input audio file to WAV format using ffmpeg.
+
+    Parameters:
+    - input_file: Path to the input file.
+    - output_file: Path to the output WAV file. Defaults to 'output.wav'.
+
+    Returns:
+    - A message indicating the conversion status.
+    """
+    try:
+        # Command to use ffmpeg to convert input file to WAV
+        command = ['ffmpeg', '-i', input_file, '-acodec', 'pcm_s16le', '-ar', '44100', '-ac', '2', output_file]
+
+        # Execute the command
+        subprocess.run(command, check=True)
+        return f'File has been successfully converted to WAV: {output_file}'
+    except subprocess.CalledProcessError as e:
+        return f'An error occurred during conversion: {e}'
+convert_to_wav(r"D:\to check\4 LD3- 3 minute.mp3", r"D:\to check\4 LD3- 3 minute.wav")
+
+def check_audio_files():
+    root = tk.Tk()
+    root.withdraw()
+    # Ask for the folder where files need to be checked
+    folder = filedialog.askdirectory(title="Select Folder to Check")
+    below_files=[]
+    threshold = 0.2  # Set your desired threshold here
+    for dirpath, dirnames, filenames in os.walk(folder):
+        for filename in filenames:
+            if filename.endswith('.wav'):  # Check if the file is an audio file
+                file_path = os.path.join(dirpath, filename)
+                try:
+                    audio, sr = librosa.load(file_path, sr=None)  # Load the audio file
+                    if np.max(np.abs(audio)) < threshold:  # Check if any value exceeds the threshold
+                        print(dirpath, filename)
+                        below_files.append(file_path)
+                except Exception as e:
+                    print(f"Error processing {file_path}: {e}")
+    return below_files
