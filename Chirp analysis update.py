@@ -335,12 +335,12 @@ class ChirpAnalyzer:
         # Filter groups
         groups_3_4 = [g for g in groups if g[0] in [3, 4]]
         groups_3_4_limited = groups_3_4[:max_groups]  # First max_groups for 3500 calculations
-
+        verify_means(groups_3_4_limited, "/home/yossef-aidan/Desktop/verify_means.txt")
+        verify_means_to_csv(groups_3_4_limited, "/home/yossef-aidan/Desktop/verify_means_csv.csv")
         groups_3 = [g for g in groups_3_4 if g[0] == 3]
         groups_4 = [g for g in groups_3_4 if g[0] == 4]
         groups_3_limited = [g for g in groups_3_4_limited if g[0] == 3]
         groups_4_limited = [g for g in groups_3_4_limited if g[0] == 4]
-
         # Calculate basic statistics
         all_group_sizes = [g[1] for g in groups]
         all_intra_distances = [g[2] for g in groups if g[2] > 0]
@@ -375,7 +375,7 @@ class ChirpAnalyzer:
             "Total chirps": len(groups),
             "mean_syllable_size": mean_syllable_size,
             "std_syllable_size": std_syllable_size,
-            "total_filtered_groups": len(groups_3_4),
+            "total_filtered_groups": len(groups_3_4_limited),
             "mean_syllable_size_3_and_4": mean_syllable_3_4,
             "std_syllable_size_3_and_4": std_syllable_3_4,
             "mean_intra_size_3_and_4": mean_intra_3_4,
@@ -463,6 +463,192 @@ def erase_modified_files():
                 os.remove(file_path)
                 print(f"Deleted: {file_path}")
 
+
+def verify_means(groups_3_4_limited, output_path):
+    """
+    Verify mean calculations for both syllable sizes and intra intervals.
+    Converts timing values from samples to milliseconds (samples/44100 * 1000).
+    Appends results to the output file instead of overwriting.
+
+    Args:
+        groups_3_4_limited: List of group tuples containing filtered groups of size 3 and 4
+        output_path: Path where to write the verification file
+    """
+    # Split into groups of 3 and 4
+    global experiment
+    groups_3 = [g for g in groups_3_4_limited if g[0] == 3]
+    groups_4 = [g for g in groups_3_4_limited if g[0] == 4]
+
+    def to_ms(x):
+        return (x / 44100) * 1000 if x else 0
+
+    # For syllable sizes, we use g[4] which contains mean_size of individual syllables
+    all_syllable_sizes = [g[4] for g in groups_3_4_limited]
+    syllable_sizes_3 = [g[4] for g in groups_3]
+    syllable_sizes_4 = [g[4] for g in groups_4]
+
+    # For intra intervals we use g[2] which contains mean_intra
+    all_intra = [g[2] for g in groups_3_4_limited if g[2] > 0]
+    intra_3 = [g[2] for g in groups_3 if g[2] > 0]
+    intra_4 = [g[2] for g in groups_4 if g[2] > 0]
+
+    # Calculate means and convert to ms
+    means_syllables = {
+        'all': to_ms(np.mean(all_syllable_sizes)) if all_syllable_sizes else 0,
+        'size_3': to_ms(np.mean(syllable_sizes_3)) if syllable_sizes_3 else 0,
+        'size_4': to_ms(np.mean(syllable_sizes_4)) if syllable_sizes_4 else 0
+    }
+
+    means_intra = {
+        'all': to_ms(np.mean(all_intra)) if all_intra else 0,
+        'size_3': to_ms(np.mean(intra_3)) if intra_3 else 0,
+        'size_4': to_ms(np.mean(intra_4)) if intra_4 else 0
+    }
+
+    # Prepare output content
+    output_lines = [
+        f"\n\nVerification Report for {experiment}",  # Added extra newlines for separation
+        "=" * 50,
+        f"\nGroup Counts:",
+        f"Size 3 groups: {len(groups_3)}",
+        f"Size 4 groups: {len(groups_4)}",
+        f"Total groups: {len(groups_3_4_limited)}",
+
+        f"\nSyllable Means (ms):",
+        "-" * 30,
+        f"Mean of all syllables (3s and 4s): {means_syllables['all']:.2f}",
+        f"Mean of only size 3 syllables: {means_syllables['size_3']:.2f}",
+        f"Mean of only size 4 syllables: {means_syllables['size_4']:.2f}",
+
+        f"\nIntra Interval Means (ms):",
+        "-" * 30,
+        f"Mean of all intra intervals: {means_intra['all']:.2f}",
+        f"Mean of size 3 intra intervals: {means_intra['size_3']:.2f}",
+        f"Mean of size 4 intra intervals: {means_intra['size_4']:.2f}"
+    ]
+
+    # Check for potential issues
+    if means_syllables['size_3'] and means_syllables['size_4']:
+        min_mean = min(means_syllables['size_3'], means_syllables['size_4'])
+        max_mean = max(means_syllables['size_3'], means_syllables['size_4'])
+        if not (min_mean <= means_syllables['all'] <= max_mean):
+            output_lines.extend([
+                "\nWARNING: Issue detected in syllable size means!",
+                f"Combined mean ({means_syllables['all']:.2f}) is outside the range",
+                f"of individual means [{min_mean:.2f}, {max_mean:.2f}]"
+            ])
+
+    if means_intra['size_3'] and means_intra['size_4']:
+        min_mean = min(means_intra['size_3'], means_intra['size_4'])
+        max_mean = max(means_intra['size_3'], means_intra['size_4'])
+        if not (min_mean <= means_intra['all'] <= max_mean):
+            output_lines.extend([
+                "\nWARNING: Issue detected in intra interval means!",
+                f"Combined mean ({means_intra['all']:.2f}) is outside the range",
+                f"of individual means [{min_mean:.2f}, {max_mean:.2f}]"
+            ])
+
+    # Write to file in append mode
+    with open(output_path, 'a') as f:
+        f.write('\n'.join(output_lines))
+
+
+def verify_means_to_csv(groups_3_4_limited, output_path):
+    """
+    Verify mean calculations and write results to CSV.
+    Converts timing values from samples to milliseconds (samples/44100 * 1000).
+
+    Args:
+        groups_3_4_limited: List of group tuples containing filtered groups of size 3 and 4
+        output_path: Path where to write the CSV file
+        experiment: Name of the experiment
+    """
+    # Split into groups of 3 and 4
+    groups_3 = [g for g in groups_3_4_limited if g[0] == 3]
+    groups_4 = [g for g in groups_3_4_limited if g[0] == 4]
+    global experiment
+    def to_ms(x):
+        return (x / 44100) * 1000 if x else 0
+
+    # For syllable sizes, we use g[4] which contains mean_size of individual syllables
+    all_syllable_sizes = [g[4] for g in groups_3_4_limited]
+    syllable_sizes_3 = [g[4] for g in groups_3]
+    syllable_sizes_4 = [g[4] for g in groups_4]
+
+    # For intra intervals we use g[2] which contains mean_intra
+    all_intra = [g[2] for g in groups_3_4_limited if g[2] > 0]
+    intra_3 = [g[2] for g in groups_3 if g[2] > 0]
+    intra_4 = [g[2] for g in groups_4 if g[2] > 0]
+
+    # Calculate means and convert to ms
+    means_syllables = {
+        'all': to_ms(np.mean(all_syllable_sizes)) if all_syllable_sizes else 0,
+        'size_3': to_ms(np.mean(syllable_sizes_3)) if syllable_sizes_3 else 0,
+        'size_4': to_ms(np.mean(syllable_sizes_4)) if syllable_sizes_4 else 0
+    }
+
+    means_intra = {
+        'all': to_ms(np.mean(all_intra)) if all_intra else 0,
+        'size_3': to_ms(np.mean(intra_3)) if intra_3 else 0,
+        'size_4': to_ms(np.mean(intra_4)) if intra_4 else 0
+    }
+
+    # Check for potential issues
+    has_syllable_warning = False
+    has_intra_warning = False
+
+    if means_syllables['size_3'] and means_syllables['size_4']:
+        min_mean = min(means_syllables['size_3'], means_syllables['size_4'])
+        max_mean = max(means_syllables['size_3'], means_syllables['size_4'])
+        has_syllable_warning = not (min_mean <= means_syllables['all'] <= max_mean)
+
+    if means_intra['size_3'] and means_intra['size_4']:
+        min_mean = min(means_intra['size_3'], means_intra['size_4'])
+        max_mean = max(means_intra['size_3'], means_intra['size_4'])
+        has_intra_warning = not (min_mean <= means_intra['all'] <= max_mean)
+
+    # Prepare CSV data
+    headers = [
+        'experiment',
+        'total_size_3',
+        'total_size_4',
+        'total_combined',
+        'mean_size_3_ms',
+        'mean_size_4_ms',
+        'mean_size_combined_ms',
+        'mean_intra_3_ms',
+        'mean_intra_4_ms',
+        'mean_intra_combined_ms',
+        'has_syllable_warning',
+        'has_intra_warning'
+    ]
+
+    row_data = {
+        'experiment': experiment,
+        'total_size_3': len(groups_3),
+        'total_size_4': len(groups_4),
+        'total_combined': len(groups_3_4_limited),
+        'mean_size_3_ms': round(means_syllables['size_3'], 2),
+        'mean_size_4_ms': round(means_syllables['size_4'], 2),
+        'mean_size_combined_ms': round(means_syllables['all'], 2),
+        'mean_intra_3_ms': round(means_intra['size_3'], 2),
+        'mean_intra_4_ms': round(means_intra['size_4'], 2),
+        'mean_intra_combined_ms': round(means_intra['all'], 2),
+        'has_syllable_warning': has_syllable_warning,
+        'has_intra_warning': has_intra_warning
+    }
+
+    # Write to CSV
+    file_exists = os.path.exists(output_path)
+
+    with open(output_path, 'a', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=headers)
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow(row_data)
+
+    return row_data  # Return the data for potential further processing
+
 def main():
     """Main execution function."""
     print("Starting audio analysis...")
@@ -512,6 +698,7 @@ def main():
 
             # Extract path components
             parts = file_path.split(os.sep)
+            global experiment
             experiment = parts[-3]
             subject = parts[-2]
 
