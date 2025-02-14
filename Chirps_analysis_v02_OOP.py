@@ -41,7 +41,7 @@ class AudioAnalyzer:
             return None, None
 
     def _extract_dominant_frequency(self, signal):
-        """Extract dominant frequency from signal."""
+
         fft_result = np.fft.fft(signal)
         frequencies = np.fft.fftfreq(len(fft_result), 1 / self.sample_rate)
 
@@ -78,7 +78,7 @@ class AudioAnalyzer:
         return syllable_positions
 
     def _refine_position(self, signal, start_position, zero_threshold, zero_tolerance):
-        """Refine syllable position."""
+
         max_check_length = 500
         end_check = max(0, start_position - max_check_length)
         segment = signal[end_check:start_position]

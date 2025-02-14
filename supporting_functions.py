@@ -9,7 +9,6 @@ import numpy as np
 import os
 import shutil
 import random
-import h5py
 import subprocess
 
 def delete_common_files(train_folder, test_folder):
@@ -360,35 +359,9 @@ def get_wav_file_properties(file_path):
         for key, value in properties.items():
             print(f"{key}: {value}")
 
-def add_gaussian_noise_without_saving(mfcc, sigma=0.000):
-    noise = torch.randn_like(mfcc) * sigma
-    mfcc_with_noise = mfcc + noise
-    return mfcc_with_noise
 
 
-def add_gaussian_noise(mfcc, sigma=0.000):
-    # Save the original data to a file (only once)
-    np.save('original_data.npy', mfcc.cpu().numpy())
 
-    noise = torch.randn_like(mfcc) * sigma
-    mfcc_with_noise = mfcc + noise
-
-    # Save the noisy data to a file (only once)
-    np.save('noisy_data.npy', mfcc_with_noise.cpu().numpy())
-
-    return mfcc_with_noise
-
-
-def set_seed(seed_value=42):
-    """Set seed for reproducibility."""
-    random.seed(seed_value)
-    np.random.seed(seed_value)
-    torch.manual_seed(seed_value)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed_value)
-        torch.cuda.manual_seed_all(seed_value)  # if you are using multi-GPU.
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
 # def calculate_cross_correlation(signal1, signal2):
 #     # Compute the cross-correlation
 #     correlation = np.correlate(signal1, signal2, mode='valid')
@@ -502,7 +475,7 @@ def set_seed(seed_value=42):
 #             current_position += pattern_length
 #
 #     return syllable_positions
-# syllable_pattern = r"C:\Users\yfant\OneDrive\Desktop\Crickets chirps analysis\chirp_LD_main_wave.wav"  # "E:\chirp_LD_main_wave.wav"
+# syllable_pattern = r"Absolute Path"  # "E:\chirp_LD_main_wave.wav"
 # syllable_pattern_amplitude = extract_amplitude_envelope(syllable_pattern)  # hilbert abs
 # pattern_length = len(syllable_pattern_amplitude)
 # to_erase_files = check_audio_files()
